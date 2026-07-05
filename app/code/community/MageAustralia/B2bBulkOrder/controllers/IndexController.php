@@ -116,6 +116,114 @@ class MageAustralia_B2bBulkOrder_IndexController extends Mage_Core_Controller_Fr
             ]));
     }
 
+    /**
+     * Return a configurable product's attribute set + variant matrix as JSON
+     * so the storefront modal can render an inline option picker (reusing
+     * the same shape POS uses in its configurable-product modal).
+     *
+     * Response:
+     *   {
+     *     name: string,
+     *     sku:  string,
+     *     imageUrl: string|null,
+     *     options: [                              // configurable attributes
+     *       {code, label, values: [{id, label}, ...]}
+     *     ],
+     *     variants: [                             // one row per child
+     *       {sku, name, priceEx, priceInc, inStock,
+     *        attributes: {code: valueId, ...}}
+     *     ]
+     *   }
+     */
+    public function optionsAction(): void
+    {
+        $productId = (int) $this->getRequest()->getParam('product_id');
+        if ($productId <= 0) {
+            $this->_json(['error' => 'missing product_id'], 400);
+            return;
+        }
+        /** @var Mage_Catalog_Model_Product $product */
+        $product = Mage::getModel('catalog/product')->load($productId);
+        if (!$product->getId() || $product->getTypeId() !== Mage_Catalog_Model_Product_Type::TYPE_CONFIGURABLE) {
+            $this->_json(['error' => 'not_configurable'], 404);
+            return;
+        }
+        /** @var Mage_Catalog_Model_Product_Type_Configurable $typeInstance */
+        $typeInstance = $product->getTypeInstance(true);
+        $configAttributes = $typeInstance->getConfigurableAttributesAsArray($product);
+        $options = [];
+        foreach ($configAttributes as $attr) {
+            $values = [];
+            foreach ((array) ($attr['values'] ?? []) as $v) {
+                $values[] = [
+                    'id'    => (int) ($v['value_index'] ?? 0),
+                    'label' => (string) ($v['label'] ?? ($v['default_label'] ?? '')),
+                ];
+            }
+            $options[] = [
+                'code'  => (string) ($attr['attribute_code'] ?? ''),
+                'label' => (string) ($attr['label'] ?? ($attr['frontend_label'] ?? '')),
+                'values' => $values,
+            ];
+        }
+
+        $variants = [];
+        $children = $typeInstance->getUsedProductCollection($product)
+            ->addAttributeToSelect(['name', 'sku', 'price', 'small_image', 'status', 'stock_item']);
+        // Also make sure we can read the super attribute IDs
+        foreach ($configAttributes as $a) {
+            if (!empty($a['attribute_code'])) {
+                $children->addAttributeToSelect($a['attribute_code']);
+            }
+        }
+        foreach ($children as $child) {
+            /** @var Mage_Catalog_Model_Product $child */
+            $attrs = [];
+            foreach ($configAttributes as $a) {
+                $code = (string) ($a['attribute_code'] ?? '');
+                if ($code !== '' && $child->hasData($code)) {
+                    $attrs[$code] = (int) $child->getData($code);
+                }
+            }
+            $stock = Mage::getModel('cataloginventory/stock_item')->loadByProduct($child);
+            $variants[] = [
+                'sku'      => (string) $child->getSku(),
+                'name'     => (string) $child->getName(),
+                'priceEx'  => (float) Mage::helper('tax')->getPrice($child, (float) $child->getFinalPrice(), false),
+                'priceInc' => (float) Mage::helper('tax')->getPrice($child, (float) $child->getFinalPrice(), true),
+                'inStock'  => (bool) $stock->getIsInStock(),
+                'attributes' => $attrs,
+            ];
+        }
+
+        $imgUrl = (string) $product->getSmallImage();
+        if ($imgUrl && $imgUrl !== 'no_selection') {
+            $imgUrl = Mage::getSingleton('catalog/product_media_config')->getMediaUrl($imgUrl);
+        } else {
+            $imgUrl = null;
+        }
+
+        $this->_json([
+            'name'     => (string) $product->getName(),
+            'sku'      => (string) $product->getSku(),
+            'imageUrl' => $imgUrl,
+            'options'  => $options,
+            'variants' => $variants,
+        ]);
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function _json(array $data, int $status = 200): void
+    {
+        $this->getResponse()
+            ->clearHeaders()
+            ->setHttpResponseCode($status)
+            ->setHeader('Content-Type', 'application/json', true)
+            ->setBody(Mage::helper('core')->jsonEncode($data));
+    }
+
     public function templateAction(): void
     {
         $body = "SKU,Quantity\r\n"

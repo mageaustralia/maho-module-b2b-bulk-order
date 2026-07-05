@@ -125,6 +125,11 @@ class MageAustralia_B2bBulkOrder_Block_Grid extends Mage_Core_Block_Template
         return $this->getSubmitForApprovalUrl() !== null;
     }
 
+    public function getOptionsUrl(): string
+    {
+        return $this->getUrl('bulk-order/index/options');
+    }
+
     /* ---- Product listing ---- */
 
     public function getSearchTerm(): string

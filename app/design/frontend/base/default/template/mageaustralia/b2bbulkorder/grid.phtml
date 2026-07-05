@@ -125,6 +125,7 @@ $catOptions = $this->getCategoryOptions();
                         || $product->getHasOptions();
                     ?>
                     <tr data-sku="<?= $this->escapeHtml($sku) ?>"
+                        data-product-id="<?= (int) $product->getId() ?>"
                         data-price-inc="<?= $this->escapeHtml((string) $inc) ?>"
                         data-price-ex="<?= $this->escapeHtml((string) $exc) ?>"
                         data-type="<?= $this->escapeHtml($typeId) ?>">
@@ -152,18 +153,14 @@ $catOptions = $this->getCategoryOptions();
                         </td>
                         <td class="col-qty">
                             <?php if ($needsOptions): ?>
-                                <?php
-                                $returnUrl = $this->getUrl('bulk-order', ['_query' => [
-                                    'q'   => $this->getSearchTerm() !== '' ? $this->getSearchTerm() : null,
-                                    'cat' => $this->getCurrentCategoryId() > 0 ? $this->getCurrentCategoryId() : null,
-                                    'p'   => $this->getCurrentPage(),
-                                ]]);
-                                ?>
-                                <a class="button button-small" href="<?= $this->escapeUrl($product->getProductUrl()) ?>"
-                                   target="_blank" rel="noopener"
-                                   title="<?= $this->escapeHtml($this->__('Opens the product page in a new tab so you can choose options + add to cart, then come back to this list.')) ?>">
+                                <button type="button" class="button button-small"
+                                        data-action="b2b-choose-options"
+                                        data-product-id="<?= (int) $product->getId() ?>"
+                                        data-sku="<?= $this->escapeHtml($sku) ?>"
+                                        data-name="<?= $this->escapeHtml((string) $product->getName()) ?>"
+                                        title="<?= $this->escapeHtml($this->__('Pick a variant + qty inline. The chosen variant appears as its own row below.')) ?>">
                                     <?= $this->escapeHtml($this->__('Choose options →')) ?>
-                                </a>
+                                </button>
                             <?php else: ?>
                                 <input type="number" min="0" step="1" value="0" data-role="qty" name="qty[<?= $this->escapeHtml($sku) ?>]" aria-label="Quantity for <?= $this->escapeHtml($sku) ?>" <?= $inStock ? '' : 'disabled' ?>>
                             <?php endif; ?>
@@ -228,6 +225,47 @@ $catOptions = $this->getCategoryOptions();
         </div>
     </form>
 
+    <!-- ────────── Options modal (configurable-product picker) ──────────
+         Reuses the concept from POS' configurable-product modal: fetch
+         attributes + variants, one dropdown per attribute, resolve the
+         chosen combination to a specific child SKU, then insert that SKU
+         as a new row in the grid so the buyer can set a qty and submit
+         through the same code path as simple products. -->
+    <div id="b2b-opt-modal" class="b2b-modal" role="dialog" aria-modal="true" aria-labelledby="b2b-opt-modal-title" hidden>
+        <div class="b2b-modal__backdrop" data-action="b2b-opt-close"></div>
+        <div class="b2b-modal__panel" role="document">
+            <button type="button" class="b2b-modal__close" data-action="b2b-opt-close" aria-label="Close">&times;</button>
+            <div class="b2b-modal__header">
+                <div class="b2b-modal__thumb"><img id="b2b-opt-img" src="" alt="" hidden></div>
+                <div>
+                    <h2 id="b2b-opt-modal-title"><?= $this->escapeHtml($this->__('Choose options')) ?></h2>
+                    <div id="b2b-opt-parent-name" class="b2b-modal__lede"></div>
+                </div>
+            </div>
+            <div id="b2b-opt-body">
+                <div id="b2b-opt-fields"></div>
+                <div id="b2b-opt-selected" class="b2b-modal__selected" hidden>
+                    <div class="b2b-modal__selected-line"><strong><?= $this->escapeHtml($this->__('SKU')) ?>:</strong> <span data-role="sku"></span></div>
+                    <div class="b2b-modal__selected-line"><strong data-role="tax-label"></strong> <span data-role="price"></span></div>
+                    <div class="b2b-modal__selected-line" data-role="stock-line"></div>
+                </div>
+                <div id="b2b-opt-qty-row" hidden>
+                    <label for="b2b-opt-qty"><?= $this->escapeHtml($this->__('Qty')) ?></label>
+                    <input type="number" id="b2b-opt-qty" min="1" step="1" value="1">
+                </div>
+                <div id="b2b-opt-error" class="b2b-modal__error" hidden></div>
+            </div>
+            <div class="b2b-modal__actions">
+                <button type="button" class="button" data-action="b2b-opt-close">
+                    <?= $this->escapeHtml($this->__('Cancel')) ?>
+                </button>
+                <button type="button" class="button button-primary" id="b2b-opt-add" disabled>
+                    <?= $this->escapeHtml($this->__('Add to grid')) ?>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <details class="b2b-bulk-order__paste-advanced">
         <summary><?= $this->escapeHtml($this->__('Or, paste / upload SKUs')) ?></summary>
         <div class="b2b-bulk-order__inputs">
@@ -289,12 +327,37 @@ $catOptions = $this->getCategoryOptions();
 .b2b-bulk-order__grid .b2b-bulk-empty { color: #9ca3af; text-align: center; padding: 32px; }
 .b2b-bulk-order__grid tbody tr:hover { background: #f9fafb; }
 .b2b-bulk-order__grid tbody tr.has-qty { background: #eef2ff; }
-.stock-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+.stock-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+.b2b-bulk-order__grid .col-stock { white-space: nowrap; width: 1%; }
 .stock-badge.in { background: #d1fae5; color: #065f46; }
 .stock-badge.out { background: #fee2e2; color: #991b1b; }
 .type-badge { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 3px; background: #fef3c7; color: #92400e; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-.button-small { display: inline-block; padding: 4px 10px; font-size: 12px; font-weight: 600; text-decoration: none; background: #eef2ff; color: #4f46e5; border: 1px solid #c7d2fe; border-radius: 4px; }
+.button-small { display: inline-block; padding: 4px 10px; font-size: 12px; font-weight: 600; text-decoration: none; background: #eef2ff; color: #4f46e5; border: 1px solid #c7d2fe; border-radius: 4px; cursor: pointer; }
 .button-small:hover { background: #4f46e5; color: #fff; }
+
+/* Options-picker modal */
+.b2b-modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.b2b-modal[hidden] { display: none; }
+.b2b-modal__backdrop { position: absolute; inset: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(2px); }
+.b2b-modal__panel { position: relative; background: #fff; border-radius: 10px; box-shadow: 0 20px 60px rgba(15,23,42,0.4); max-width: 480px; width: 100%; padding: 24px; }
+.b2b-modal__close { position: absolute; top: 10px; right: 12px; background: none; border: 0; font-size: 24px; line-height: 1; color: #6b7280; cursor: pointer; padding: 4px 8px; }
+.b2b-modal__close:hover { color: #111827; }
+.b2b-modal__header { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; padding-right: 24px; }
+.b2b-modal__thumb img { width: 56px; height: 56px; object-fit: contain; border-radius: 6px; background: #f8fafc; }
+.b2b-modal__header h2 { font-size: 17px; margin: 0 0 3px; color: #0f172a; }
+.b2b-modal__lede { font-size: 13px; color: #6b7280; }
+#b2b-opt-fields { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+#b2b-opt-fields label { display: block; font-size: 12px; font-weight: 600; color: #4b5563; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+#b2b-opt-fields select { width: 100%; padding: 9px 12px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; font-size: 14px; }
+.b2b-modal__selected { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px 14px; margin: 10px 0 16px; font-size: 13px; color: #374151; }
+.b2b-modal__selected-line + .b2b-modal__selected-line { margin-top: 4px; }
+.b2b-modal__selected .in-stock { color: #065f46; font-weight: 600; }
+.b2b-modal__selected .out-of-stock { color: #991b1b; font-weight: 600; }
+#b2b-opt-qty-row { display: flex; align-items: center; gap: 10px; margin: 10px 0 16px; }
+#b2b-opt-qty-row label { font-size: 12px; font-weight: 600; color: #4b5563; text-transform: uppercase; letter-spacing: .04em; }
+#b2b-opt-qty { width: 90px; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 14px; text-align: right; }
+.b2b-modal__error { background: #fef2f2; border: 1px solid #fecaca; padding: 10px 12px; border-radius: 4px; color: #991b1b; font-size: 13px; margin: 8px 0 12px; }
+.b2b-modal__actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 12px; border-top: 1px solid #e5e7eb; }
 
 .b2b-bulk-order__pager { display: flex; align-items: center; gap: 16px; padding: 14px 0; font-size: 13px; color: #4b5563; }
 .b2b-bulk-order__pager a { color: #4f46e5; text-decoration: none; }
@@ -325,6 +388,7 @@ $catOptions = $this->getCategoryOptions();
     'parseUrl'   => $this->getParseUrl(),
     'uploadUrl'  => $this->getUploadUrl(),
     'taxUrl'     => $this->getSetTaxDisplayUrl(),
+    'optionsUrl' => $this->getOptionsUrl(),
     'taxMode'    => $taxMode,
     'formKey'    => Mage::getSingleton('core/session')->getFormKey(),
     'currencyCode' => Mage::app()->getStore()->getCurrentCurrencyCode(),
@@ -463,5 +527,203 @@ $catOptions = $this->getCategoryOptions();
   });
 
   refreshTotals();
+
+  /* ─── Options modal ─────────────────────────────────────────────
+     Concept borrowed from the POS terminal's configurable-product modal:
+     fetch parent → dropdowns per attribute → resolve chosen combination
+     to a variant → insert as a new row in the grid.                    */
+  const $modal      = document.getElementById('b2b-opt-modal');
+  const $modalImg   = document.getElementById('b2b-opt-img');
+  const $modalName  = document.getElementById('b2b-opt-parent-name');
+  const $modalFields= document.getElementById('b2b-opt-fields');
+  const $modalSel   = document.getElementById('b2b-opt-selected');
+  const $modalQtyRow= document.getElementById('b2b-opt-qty-row');
+  const $modalQty   = document.getElementById('b2b-opt-qty');
+  const $modalError = document.getElementById('b2b-opt-error');
+  const $modalAdd   = document.getElementById('b2b-opt-add');
+
+  let modalState = null; // { parentSku, name, options: [...], variants: [...], selection: {code:valueId}, currentVariant }
+
+  function openModal() { $modal.hidden = false; document.body.style.overflow = 'hidden'; }
+  function closeModal() {
+    $modal.hidden = true;
+    document.body.style.overflow = '';
+    modalState = null;
+    $modalFields.innerHTML = '';
+    $modalSel.hidden = true;
+    $modalQtyRow.hidden = true;
+    $modalError.hidden = true;
+    $modalAdd.disabled = true;
+    if ($modalImg) { $modalImg.hidden = true; $modalImg.src = ''; }
+  }
+  function showError(msg) { $modalError.textContent = msg; $modalError.hidden = false; }
+
+  function renderFields() {
+    $modalFields.innerHTML = '';
+    for (const opt of modalState.options) {
+      const wrap = document.createElement('div');
+      const lbl = document.createElement('label');
+      lbl.textContent = opt.label || opt.code;
+      lbl.setAttribute('for', 'b2b-opt-' + opt.code);
+      const sel = document.createElement('select');
+      sel.id = 'b2b-opt-' + opt.code;
+      sel.dataset.optionCode = opt.code;
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '-- ' + (opt.label || opt.code) + ' --';
+      sel.appendChild(placeholder);
+      for (const v of opt.values) {
+        const o = document.createElement('option');
+        o.value = String(v.id);
+        o.textContent = v.label;
+        sel.appendChild(o);
+      }
+      sel.addEventListener('change', onSelectionChange);
+      wrap.appendChild(lbl);
+      wrap.appendChild(sel);
+      $modalFields.appendChild(wrap);
+    }
+  }
+
+  function onSelectionChange() {
+    const selection = {};
+    $modalFields.querySelectorAll('select').forEach(s => {
+      if (s.value !== '') selection[s.dataset.optionCode] = parseInt(s.value, 10);
+    });
+    modalState.selection = selection;
+    const complete = modalState.options.every(o => selection[o.code] !== undefined);
+    if (!complete) {
+      $modalSel.hidden = true;
+      $modalQtyRow.hidden = true;
+      $modalAdd.disabled = true;
+      modalState.currentVariant = null;
+      return;
+    }
+    // Find matching variant
+    const match = modalState.variants.find(v => {
+      for (const [code, id] of Object.entries(selection)) {
+        if ((v.attributes[code] | 0) !== (id | 0)) return false;
+      }
+      return true;
+    });
+    modalState.currentVariant = match || null;
+    if (!match) {
+      showError('That combination isn\'t available.');
+      $modalSel.hidden = true;
+      $modalQtyRow.hidden = true;
+      $modalAdd.disabled = true;
+      return;
+    }
+    $modalError.hidden = true;
+    $modalSel.querySelector('[data-role="sku"]').textContent = match.sku;
+    const priceLabel = taxMode === 1 ? 'Price inc tax:' : 'Price ex tax:';
+    const unit = taxMode === 1 ? match.priceInc : match.priceEx;
+    $modalSel.querySelector('[data-role="tax-label"]').textContent = priceLabel;
+    $modalSel.querySelector('[data-role="price"]').textContent = money(unit);
+    const stockEl = $modalSel.querySelector('[data-role="stock-line"]');
+    stockEl.innerHTML = match.inStock
+      ? '<span class="in-stock">In stock</span>'
+      : '<span class="out-of-stock">Out of stock</span>';
+    $modalSel.hidden = false;
+    $modalQtyRow.hidden = !match.inStock;
+    $modalAdd.disabled = !match.inStock;
+  }
+
+  async function openForButton(btn) {
+    const productId = btn.dataset.productId;
+    const parentName = btn.dataset.name || btn.dataset.sku;
+    modalState = { parentSku: btn.dataset.sku, name: parentName, options: [], variants: [], selection: {}, currentVariant: null };
+    $modalName.textContent = parentName;
+    $modalFields.innerHTML = '<div style="color:#6b7280;font-size:13px;padding:8px 0;">Loading options...</div>';
+    openModal();
+    try {
+      const res = await fetch(CFG.optionsUrl + '?product_id=' + encodeURIComponent(productId), {
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
+      });
+      if (!res.ok) throw new Error('http ' + res.status);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      modalState.options = data.options || [];
+      modalState.variants = data.variants || [];
+      if (data.imageUrl) { $modalImg.src = data.imageUrl; $modalImg.hidden = false; }
+      $modalName.textContent = data.name || parentName;
+      if (!modalState.options.length) {
+        $modalFields.innerHTML = '<div style="color:#6b7280;font-size:13px;">This product has no selectable options.</div>';
+        return;
+      }
+      renderFields();
+    } catch (e) {
+      $modalFields.innerHTML = '';
+      showError('Couldn\'t load options: ' + e.message);
+    }
+  }
+
+  function addVariantAsRow() {
+    if (!modalState || !modalState.currentVariant) return;
+    const v = modalState.currentVariant;
+    const qty = Math.max(1, parseInt($modalQty.value, 10) || 1);
+
+    // If a row for that SKU already exists (buyer picked it before), just
+    // bump the qty on that row instead of adding a duplicate.
+    const existing = $body.querySelector('tr[data-sku="' + CSS.escape(v.sku) + '"]');
+    if (existing) {
+      const qtyInp = existing.querySelector('[data-role="qty"]');
+      if (qtyInp) qtyInp.value = String((parseInt(qtyInp.value, 10) || 0) + qty);
+      refreshTotals();
+      existing.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      closeModal();
+      return;
+    }
+
+    // Otherwise: build a new row and insert it directly below the parent
+    // (which is the currently-open one - but the button doesn't know its
+    //  own row directly, so we insert at the top of the grid so the buyer
+    //  can see the variant land).
+    const tr = document.createElement('tr');
+    tr.dataset.sku = v.sku;
+    tr.dataset.priceEx = String(v.priceEx);
+    tr.dataset.priceInc = String(v.priceInc);
+    tr.dataset.type = 'simple';
+    tr.dataset.addedByOptions = '1';
+    tr.classList.add('has-qty');
+
+    const priceCell = money(taxMode === 1 ? v.priceInc : v.priceEx);
+    tr.innerHTML = `
+      <td class="col-img"></td>
+      <td class="col-sku">${v.sku.replace(/[<>&]/g, '')}<span class="type-badge">variant</span></td>
+      <td class="col-name">${(v.name || modalState.name).replace(/[<>&]/g, '')}</td>
+      <td class="col-stock"><span class="stock-badge in">In stock</span></td>
+      <td class="col-price" data-role="unit-price">${priceCell}</td>
+      <td class="col-qty">
+        <input type="number" min="0" step="1" value="${qty}" data-role="qty" name="qty[${v.sku.replace(/"/g,'&quot;')}]">
+      </td>
+      <td class="col-line" data-role="line-total">${money(qty * (taxMode === 1 ? v.priceInc : v.priceEx))}</td>
+    `;
+
+    // Insert at the top so it's visible immediately
+    $body.insertBefore(tr, $body.firstElementChild);
+    refreshTotals();
+    tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    closeModal();
+  }
+
+  document.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-action="b2b-choose-options"]');
+    if (btn) {
+      ev.preventDefault();
+      openForButton(btn);
+      return;
+    }
+    if (ev.target.closest('[data-action="b2b-opt-close"]')) {
+      ev.preventDefault();
+      closeModal();
+      return;
+    }
+  });
+  $modalAdd.addEventListener('click', addVariantAsRow);
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && !$modal.hidden) closeModal();
+  });
 })();
 </script>

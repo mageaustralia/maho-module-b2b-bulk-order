@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<config>
+    <modules>
+        <MageAustralia_B2bBulkOrder>
+            <active>true</active>
+            <codePool>community</codePool>
+            <depends>
+                <Mage_Checkout/>
+                <Mage_Catalog/>
+            </depends>
+        </MageAustralia_B2bBulkOrder>
+    </modules>
+</config>

@@ -1,0 +1,69 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Maho
+ * @package    MageAustralia_B2bBulkOrder
+ * @copyright  Copyright (c) 2026 Mage Australia
+ * @license    https://opensource.org/licenses/osl-3.0.php  Open Software License (OSL 3.0)
+ */
+-->
+<config>
+    <modules>
+        <MageAustralia_B2bBulkOrder>
+            <version>0.1.0</version>
+        </MageAustralia_B2bBulkOrder>
+    </modules>
+
+    <global>
+        <helpers>
+            <b2bbulkorder>
+                <class>MageAustralia_B2bBulkOrder_Helper</class>
+            </b2bbulkorder>
+        </helpers>
+        <blocks>
+            <b2bbulkorder>
+                <class>MageAustralia_B2bBulkOrder_Block</class>
+            </b2bbulkorder>
+        </blocks>
+    </global>
+
+    <frontend>
+        <routers>
+            <b2bbulkorder>
+                <use>standard</use>
+                <args>
+                    <module>MageAustralia_B2bBulkOrder</module>
+                    <frontName>bulk-order</frontName>
+                </args>
+            </b2bbulkorder>
+        </routers>
+        <layout>
+            <updates>
+                <b2bbulkorder>
+                    <file>mageaustralia_b2bbulkorder.xml</file>
+                </b2bbulkorder>
+            </updates>
+        </layout>
+        <translate>
+            <modules>
+                <MageAustralia_B2bBulkOrder>
+                    <files>
+                        <default>MageAustralia_B2bBulkOrder.csv</default>
+                    </files>
+                </MageAustralia_B2bBulkOrder>
+            </modules>
+        </translate>
+    </frontend>
+
+    <default>
+        <b2bbulkorder>
+            <general>
+                <enabled>1</enabled>
+                <require_login>1</require_login>
+                <allowed_groups>0,1,2</allowed_groups>
+                <default_tax_display>1</default_tax_display>
+                <max_rows>500</max_rows>
+            </general>
+        </b2bbulkorder>
+    </default>
+</config>

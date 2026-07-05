@@ -1,0 +1,17 @@
+{
+    "name": "mageaustralia/maho-module-b2b-bulk-order",
+    "license": "OSL-3.0",
+    "type": "maho-module",
+    "description": "Storefront bulk-order page for B2B customers. Grid of SKU + qty inputs, downloadable CSV template, paste / upload of multi-line SKU lists with non-matched-SKU report, ex-tax / inc-tax display toggle, and a Buy-Now-or-Send-as-Quote toggle on the finished cart (Send-as-Quote requires the b2b-rfq module).",
+    "keywords": ["maho", "b2b", "bulk-order", "quick-order", "wholesale"],
+    "require": {
+        "php": ">=8.3",
+        "mahocommerce/maho": "^26.5"
+    },
+    "authors": [
+        {"name": "Mage Australia", "homepage": "https://mageaustralia.com.au"}
+    ],
+    "extra": {
+        "maho-module-dir": "app/code/community/MageAustralia/B2bBulkOrder"
+    }
+}

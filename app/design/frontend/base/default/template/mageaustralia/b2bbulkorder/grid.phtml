@@ -137,7 +137,10 @@ $catOptions = $this->getCategoryOptions();
                         <td class="col-sku">
                             <a href="<?= $this->escapeUrl($product->getProductUrl()) ?>" target="_blank" rel="noopener"><?= $this->escapeHtml($sku) ?></a>
                             <?php if ($needsOptions): ?>
-                                <span class="type-badge"><?= $this->escapeHtml($this->__('has options')) ?></span>
+                                <?php $badgeLabel = $typeId === Mage_Catalog_Model_Product_Type::TYPE_CONFIGURABLE
+                                    ? $this->__('has variants')
+                                    : $this->__('has options'); ?>
+                                <span class="type-badge"><?= $this->escapeHtml($badgeLabel) ?></span>
                             <?php endif; ?>
                         </td>
                         <td class="col-name"><?= $this->escapeHtml((string) $product->getName()) ?></td>
@@ -153,14 +156,27 @@ $catOptions = $this->getCategoryOptions();
                         </td>
                         <td class="col-qty">
                             <?php if ($needsOptions): ?>
-                                <button type="button" class="button button-small"
-                                        data-action="b2b-choose-options"
-                                        data-product-id="<?= (int) $product->getId() ?>"
-                                        data-sku="<?= $this->escapeHtml($sku) ?>"
-                                        data-name="<?= $this->escapeHtml((string) $product->getName()) ?>"
-                                        title="<?= $this->escapeHtml($this->__('Pick a variant + qty inline. The chosen variant appears as its own row below.')) ?>">
-                                    <?= $this->escapeHtml($this->__('Choose options →')) ?>
-                                </button>
+                                <?php if ($typeId === Mage_Catalog_Model_Product_Type::TYPE_CONFIGURABLE): ?>
+                                    <?php /* Configurable products get the inline modal picker */ ?>
+                                    <button type="button" class="button button-small"
+                                            data-action="b2b-choose-options"
+                                            data-product-id="<?= (int) $product->getId() ?>"
+                                            data-sku="<?= $this->escapeHtml($sku) ?>"
+                                            data-name="<?= $this->escapeHtml((string) $product->getName()) ?>"
+                                            title="<?= $this->escapeHtml($this->__('Pick a variant + qty inline. The chosen variant appears as its own row below.')) ?>">
+                                        <?= $this->escapeHtml($this->__('Choose options →')) ?>
+                                    </button>
+                                <?php else: ?>
+                                    <?php /* Downloadable, bundle, grouped, and custom-options need the full PDP - the modal
+                                            can't cleanly render bundle sub-picker / downloadable link list / grouped-child
+                                            qty grid / free-text custom options. Open the PDP in a new tab; the buyer configures
+                                            there, comes back to keep filling in other rows. */ ?>
+                                    <a class="button button-small" href="<?= $this->escapeUrl($product->getProductUrl()) ?>"
+                                       target="_blank" rel="noopener"
+                                       title="<?= $this->escapeHtml($this->__('Opens the product page in a new tab so you can pick options and add to cart, then come back to this list.')) ?>">
+                                        <?= $this->escapeHtml($this->__('Open product page →')) ?>
+                                    </a>
+                                <?php endif; ?>
                             <?php else: ?>
                                 <input type="number" min="0" step="1" value="0" data-role="qty" name="qty[<?= $this->escapeHtml($sku) ?>]" aria-label="Quantity for <?= $this->escapeHtml($sku) ?>" <?= $inStock ? '' : 'disabled' ?>>
                             <?php endif; ?>

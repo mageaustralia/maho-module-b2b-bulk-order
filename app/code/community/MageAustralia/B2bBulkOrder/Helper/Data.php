@@ -175,9 +175,66 @@ class MageAustralia_B2bBulkOrder_Helper_Data extends Mage_Core_Helper_Abstract
     public function formatPrice(Mage_Catalog_Model_Product $product, ?float $qty = null): string
     {
         $qty = $qty ?? 1;
-        $priceIncTax = (float) Mage::helper('tax')->getPrice($product, (float) $product->getFinalPrice(), true);
-        $priceExTax  = (float) Mage::helper('tax')->getPrice($product, (float) $product->getFinalPrice(), false);
-        $unit = $this->getTaxDisplayMode() === 1 ? $priceIncTax : $priceExTax;
-        return Mage::helper('core')->currency($unit * $qty, true, false);
+        $unit = $this->getUnitPrices($product);
+        $line = ($this->getTaxDisplayMode() === 1 ? $unit['inc'] : $unit['ex']) * $qty;
+        return Mage::helper('core')->currency($line, true, false);
+    }
+
+    /**
+     * Ex-tax + inc-tax unit prices for a product.
+     *
+     * Mage_Tax_Helper_Data::getPrice() computes the tax adjustment from the
+     * current customer's shipping address. A guest with no address has no
+     * destination country, so the tax rate resolves to 0 and inc == ex.
+     *
+     * The correct "list price" behaviour for a catalogue page is to fall back
+     * to the store's shipping origin country + region + postcode as the tax
+     * destination when the customer has none - that way "including tax" reflects
+     * the tax the customer WOULD pay if they shipped to the store's default
+     * origin (usually the merchant's home country, matching what appears on
+     * the tax invoice).
+     *
+     * @return array{ex: float, inc: float}
+     */
+    public function getUnitPrices(Mage_Catalog_Model_Product $product): array
+    {
+        $price = (float) $product->getFinalPrice();
+
+        // Build a rate request that ALWAYS has a destination country, falling
+        // back to the store's shipping origin country when the customer session
+        // has none. Without this, guests see inc == ex on the catalogue.
+        /** @var Mage_Tax_Model_Calculation $calc */
+        $calc = Mage::getSingleton('tax/calculation');
+        $storeId = (int) Mage::app()->getStore()->getId();
+        $request = $calc->getRateRequest(null, null, null, $storeId);
+
+        // getRateRequest returns null when there is nothing to base the request
+        // on. In that case pull the origin data straight from config.
+        if (!$request || !$request->getCountryId()) {
+            $request = new Varien_Object([
+                'country_id'          => (string) Mage::getStoreConfig('shipping/origin/country_id', $storeId),
+                'region_id'           => (int)    Mage::getStoreConfig('shipping/origin/region_id', $storeId),
+                'postcode'            => (string) Mage::getStoreConfig('shipping/origin/postcode', $storeId),
+                'customer_class_id'   => (int)    Mage::helper('tax')->getDefaultCustomerTaxClass($storeId),
+                'store'               => Mage::app()->getStore($storeId),
+            ]);
+        }
+        $request->setProductClassId((int) $product->getTaxClassId());
+        $rate = (float) $calc->getRate($request);
+
+        // The rate is a percentage; a 10% GST -> 10.0.
+        // If the catalog is set to "prices include tax" (config
+        // tax/calculation/price_includes_tax = 1) then $price already has tax
+        // baked in and we peel it off for the ex-tax view; otherwise $price is
+        // ex-tax and we add it on for the inc-tax view.
+        $priceIncludesTax = (bool) Mage::getStoreConfigFlag('tax/calculation/price_includes_tax', $storeId);
+        if ($priceIncludesTax) {
+            $inc = $price;
+            $ex  = $rate > 0 ? $price / (1 + $rate / 100) : $price;
+        } else {
+            $ex  = $price;
+            $inc = $rate > 0 ? $price * (1 + $rate / 100) : $price;
+        }
+        return ['ex' => round($ex, 4), 'inc' => round($inc, 4)];
     }
 }

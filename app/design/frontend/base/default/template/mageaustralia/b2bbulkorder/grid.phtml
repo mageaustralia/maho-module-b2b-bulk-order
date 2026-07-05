@@ -12,6 +12,7 @@ $helper = $this->b2bHelper();
 $taxMode = $helper->getTaxDisplayMode();
 $rfqOk   = $this->isRfqAvailable();
 $reqOk   = $this->isRequisitionAvailable();
+$poOk    = $this->isSubmitForApprovalAvailable();
 $products = $this->getProductCollection();
 $search = $this->getSearchTerm();
 $catId = $this->getCurrentCategoryId();
@@ -206,10 +207,18 @@ $catOptions = $this->getCategoryOptions();
                     </button>
                 </div>
             <?php endif; ?>
-            <button type="submit" formaction="<?= $this->escapeUrl($this->getAddToCartUrl()) ?>"
-                    class="button button-primary" id="b2b-bulk-add-to-cart" disabled>
-                <?= $this->escapeHtml($this->__('Buy Now - add selected to cart')) ?>
-            </button>
+            <?php if ($poOk): ?>
+                <button type="submit" formaction="<?= $this->escapeUrl((string) $this->getSubmitForApprovalUrl()) ?>"
+                        class="button button-primary" id="b2b-bulk-submit-po" disabled
+                        title="<?= $this->escapeHtml($this->__("Submit for your company admin's approval instead of ordering directly.")) ?>">
+                    <?= $this->escapeHtml($this->__('Submit for approval')) ?>
+                </button>
+            <?php else: ?>
+                <button type="submit" formaction="<?= $this->escapeUrl($this->getAddToCartUrl()) ?>"
+                        class="button button-primary" id="b2b-bulk-add-to-cart" disabled>
+                    <?= $this->escapeHtml($this->__('Buy Now - add selected to cart')) ?>
+                </button>
+            <?php endif; ?>
             <?php if ($rfqOk): ?>
                 <button type="submit" formaction="<?= $this->escapeUrl((string) $this->getSendAsQuoteUrl()) ?>"
                         class="button" id="b2b-bulk-send-quote" disabled>
@@ -326,6 +335,7 @@ $catOptions = $this->getCategoryOptions();
   const $unmatched = document.getElementById('b2b-bulk-unmatched');
   const $unmatchedList = document.getElementById('b2b-bulk-unmatched-list');
   const $addToCart = document.getElementById('b2b-bulk-add-to-cart');
+  const $submitPo = document.getElementById('b2b-bulk-submit-po');
   const $sendQuote = document.getElementById('b2b-bulk-send-quote');
   const $saveReq = document.getElementById('b2b-bulk-save-req');
   const $total = document.getElementById('b2b-bulk-total');
@@ -353,7 +363,8 @@ $catOptions = $this->getCategoryOptions();
       if (line > 0) anyQty = true;
     });
     $total.textContent = anyQty ? money(total) : '-';
-    $addToCart.disabled = !anyQty;
+    if ($addToCart) $addToCart.disabled = !anyQty;
+    if ($submitPo) $submitPo.disabled = !anyQty;
     if ($sendQuote) $sendQuote.disabled = !anyQty;
     if ($saveReq) $saveReq.disabled = !anyQty;
   }

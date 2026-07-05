@@ -87,6 +87,44 @@ class MageAustralia_B2bBulkOrder_Block_Grid extends Mage_Core_Block_Template
         return $this->getSaveAsRequisitionUrl() !== null;
     }
 
+    /**
+     * "Submit for approval" URL, only visible when:
+     *   - the Purchase Order module is installed AND
+     *   - the Company module is installed AND
+     *   - the current customer is a MEMBER of a company (not an admin -
+     *     admins can just order directly; there is no one above them to
+     *     approve)
+     */
+    public function getSubmitForApprovalUrl(): ?string
+    {
+        if (!class_exists('MageAustralia_B2bPurchaseOrder_Helper_Data')
+            || !class_exists('MageAustralia_Company_Helper_Data')
+        ) {
+            return null;
+        }
+        $customerId = (int) Mage::getSingleton('customer/session')->getCustomerId();
+        if ($customerId <= 0) {
+            return null;
+        }
+        /** @var MageAustralia_Company_Helper_Data $companyHelper */
+        $companyHelper = Mage::helper('company');
+        $company = $companyHelper->getCompanyForCustomer($customerId);
+        if (!$company) {
+            return null;
+        }
+        $role = $companyHelper->getRoleForCustomerAtCompany($customerId, (int) $company->getId());
+        // Only members see the button - admins order directly
+        if ($role !== MageAustralia_Company_Model_Company::ROLE_MEMBER) {
+            return null;
+        }
+        return $this->getUrl('purchase-order/index/submit');
+    }
+
+    public function isSubmitForApprovalAvailable(): bool
+    {
+        return $this->getSubmitForApprovalUrl() !== null;
+    }
+
     /* ---- Product listing ---- */
 
     public function getSearchTerm(): string

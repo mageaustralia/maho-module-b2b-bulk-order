@@ -220,6 +220,13 @@ class MageAustralia_B2bBulkOrder_Helper_Data extends Mage_Core_Helper_Abstract
             ]);
         }
         $request->setProductClassId((int) $product->getTaxClassId());
+        // Mage_Tax_Model_Calculation::_getRequestCacheKey() calls
+        // ->getStore()->getId(); getRateRequest() sometimes leaves `store` as
+        // the plain int we passed in, which fatals on ->getId(). Patch to a
+        // real Store object before calling getRate().
+        if (!is_object($request->getStore())) {
+            $request->setStore(Mage::app()->getStore($storeId));
+        }
         $rate = (float) $calc->getRate($request);
 
         // The rate is a percentage; a 10% GST -> 10.0.

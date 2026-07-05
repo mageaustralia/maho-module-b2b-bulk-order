@@ -103,7 +103,7 @@ class MageAustralia_B2bBulkOrder_Block_Grid extends Mage_Core_Block_Template
     {
         /** @var Mage_Catalog_Model_Resource_Product_Collection $collection */
         $collection = Mage::getResourceModel('catalog/product_collection')
-            ->addAttributeToSelect(['name', 'sku', 'price', 'small_image', 'stock_item'])
+            ->addAttributeToSelect(['name', 'sku', 'price', 'small_image', 'stock_item', 'tax_class_id', 'has_options'])
             ->addAttributeToFilter('status', Mage_Catalog_Model_Product_Status::STATUS_ENABLED)
             ->addAttributeToFilter('visibility', ['neq' => Mage_Catalog_Model_Product_Visibility::VISIBILITY_NOT_VISIBLE])
             ->addStoreFilter();

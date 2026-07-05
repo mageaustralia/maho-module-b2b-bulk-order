@@ -155,28 +155,47 @@ class MageAustralia_B2bBulkOrder_Block_Grid extends Mage_Core_Block_Template
 
     /**
      * Build the product collection the page renders. Filters:
-     *   - search: matches SKU or name (LIKE)
-     *   - category: single-category scope (subcategories inherited)
+     *   - search: routes through the store's configured catalogsearch engine
+     *     (Meilisearch / Elasticsearch / built-in Lucene / MySQL fulltext)
+     *     if one is installed, so buyers get the same ranking + tokenising
+     *     they'd get on /catalogsearch/. Falls back to a LIKE sweep on
+     *     SKU + name when no engine is registered.
+     *   - category: single-category scope (subcategories inherited).
      *
-     * @return Mage_Catalog_Model_Resource_Product_Collection
+     * @return Mage_Catalog_Model_Resource_Product_Collection|Mage_CatalogSearch_Model_Resource_Fulltext_Collection
      */
     public function getProductCollection()
     {
-        /** @var Mage_Catalog_Model_Resource_Product_Collection $collection */
-        $collection = Mage::getResourceModel('catalog/product_collection')
-            ->addAttributeToSelect(['name', 'sku', 'price', 'small_image', 'stock_item', 'tax_class_id', 'has_options'])
+        $q = $this->getSearchTerm();
+        $useEngine = $q !== '' && $this->_hasSearchEngine();
+
+        if ($useEngine) {
+            /** @var Mage_CatalogSearch_Model_Resource_Fulltext_Collection $collection */
+            $collection = Mage::getResourceModel('catalogsearch/fulltext_collection');
+            $collection->addSearchFilter($q);
+        } else {
+            /** @var Mage_Catalog_Model_Resource_Product_Collection $collection */
+            $collection = Mage::getResourceModel('catalog/product_collection');
+        }
+
+        $collection->addAttributeToSelect(['name', 'sku', 'price', 'small_image', 'stock_item', 'tax_class_id', 'has_options'])
             ->addAttributeToFilter('status', Mage_Catalog_Model_Product_Status::STATUS_ENABLED)
             ->addAttributeToFilter('visibility', ['neq' => Mage_Catalog_Model_Product_Visibility::VISIBILITY_NOT_VISIBLE])
             ->addStoreFilter();
-        $collection->addAttributeToSort('name', 'ASC');
 
-        $q = $this->getSearchTerm();
-        if ($q !== '') {
-            $like = '%' . $q . '%';
-            $collection->addFieldToFilter([
-                ['attribute' => 'sku',  'like' => $like],
-                ['attribute' => 'name', 'like' => $like],
-            ]);
+        // When routing through the search engine, ranking (from the engine)
+        // determines order. Otherwise fall back to alphabetical - buyers scan
+        // a bulk-order grid faster with a predictable order.
+        if (!$useEngine) {
+            $collection->addAttributeToSort('name', 'ASC');
+            if ($q !== '') {
+                // No engine registered - do the naive LIKE sweep.
+                $like = '%' . $q . '%';
+                $collection->addFieldToFilter([
+                    ['attribute' => 'sku',  'like' => $like],
+                    ['attribute' => 'name', 'like' => $like],
+                ]);
+            }
         }
 
         $catId = $this->getCurrentCategoryId();
@@ -188,6 +207,31 @@ class MageAustralia_B2bBulkOrder_Block_Grid extends Mage_Core_Block_Template
             ->setCurPage($this->getCurrentPage());
 
         return $collection;
+    }
+
+    /**
+     * True when a non-default (i.e. real) search engine adapter is registered
+     * with the catalogsearch layer. On installs without a search extension
+     * this returns false and the grid falls back to LIKE.
+     *
+     * We check for the presence of the engine helper method used by
+     * Mage_CatalogSearch_Helper_Data, not for a specific engine class, so we
+     * transparently support Meilisearch / Elasticsearch / Lucene / anything
+     * else that registers as a valid catalogsearch engine.
+     */
+    private function _hasSearchEngine(): bool
+    {
+        try {
+            /** @var Mage_CatalogSearch_Helper_Data $helper */
+            $helper = Mage::helper('catalogsearch');
+            if (method_exists($helper, 'getEngine')) {
+                $engine = $helper->getEngine();
+                return is_object($engine);
+            }
+        } catch (Throwable $e) {
+            // fall through
+        }
+        return false;
     }
 
     /**

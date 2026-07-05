@@ -11,6 +11,13 @@
 $helper = $this->b2bHelper();
 $taxMode = $helper->getTaxDisplayMode();
 $rfqOk   = $this->isRfqAvailable();
+$products = $this->getProductCollection();
+$search = $this->getSearchTerm();
+$catId = $this->getCurrentCategoryId();
+$currentPage = $this->getCurrentPage();
+$pageCount = $this->getPageCount();
+$total = (int) $products->getSize();
+$catOptions = $this->getCategoryOptions();
 ?>
 <div class="b2b-bulk-order">
     <div class="page-title">
@@ -19,101 +26,142 @@ $rfqOk   = $this->isRfqAvailable();
 
     <p class="b2b-bulk-order__lede">
         <?= $this->escapeHtml($this->__(
-            'Add many products in one go. Type or paste your SKUs below, or upload a CSV file. '
-            . 'When you are done, choose whether to check out now or send the whole list as a quote request.',
+            'Browse the catalogue, set a quantity on any line you want, and choose whether to check out '
+            . 'immediately or send the whole list as a quote request. Use the search + category filters to '
+            . 'narrow down, or paste a list of SKUs at the bottom if you already know what you need.',
         )) ?>
     </p>
 
-    <div class="b2b-bulk-order__toolbar">
-        <div class="b2b-bulk-order__tax-toggle" role="radiogroup" aria-label="Price display mode">
-            <button type="button" class="b2b-tax-btn <?= $taxMode === 0 ? 'is-active' : '' ?>"
-                    data-mode="0" data-action="b2b-bulk-order-tax">
-                <?= $this->escapeHtml($this->__('Ex tax')) ?>
-            </button>
-            <button type="button" class="b2b-tax-btn <?= $taxMode === 1 ? 'is-active' : '' ?>"
-                    data-mode="1" data-action="b2b-bulk-order-tax">
-                <?= $this->escapeHtml($this->__('Inc tax')) ?>
-            </button>
-        </div>
-        <a class="b2b-bulk-order__template-link" href="<?= $this->escapeUrl($this->getTemplateUrl()) ?>">
-            <?= $this->escapeHtml($this->__('Download CSV template')) ?>
-        </a>
-    </div>
-
-    <div class="b2b-bulk-order__inputs">
-        <section class="b2b-bulk-order__input-block">
-            <h2><?= $this->escapeHtml($this->__('Paste SKUs (one per line)')) ?></h2>
-            <p class="hint">
-                <?= $this->escapeHtml($this->__('Formats accepted: "SKU", "SKU,qty", "SKU qty" (one item per line).')) ?>
-            </p>
-            <textarea id="b2b-bulk-paste" rows="6" placeholder="ABL003, 5&#10;WBK002L, 2&#10;msj000t"></textarea>
-            <button type="button" id="b2b-bulk-paste-add" class="button">
-                <?= $this->escapeHtml($this->__('Look up SKUs')) ?>
-            </button>
-        </section>
-
-        <section class="b2b-bulk-order__input-block">
-            <h2><?= $this->escapeHtml($this->__('Upload a CSV file')) ?></h2>
-            <p class="hint">
-                <?= $this->escapeHtml($this->__('Two columns: SKU, Quantity. Use the template if unsure.')) ?>
-            </p>
-            <form id="b2b-bulk-upload-form" enctype="multipart/form-data">
-                <input type="hidden" name="form_key" value="<?= $this->escapeHtml(Mage::getSingleton('core/session')->getFormKey()) ?>">
-                <input type="file" name="file" accept=".csv,.txt" required>
-                <button type="submit" class="button">
-                    <?= $this->escapeHtml($this->__('Upload')) ?>
+    <form method="get" action="<?= $this->escapeUrl($this->getUrl('bulk-order')) ?>" class="b2b-bulk-order__filter">
+        <input type="search" name="q" value="<?= $this->escapeHtml($search) ?>" placeholder="<?= $this->escapeHtml($this->__('Search by SKU or name')) ?>">
+        <?php if ($catOptions): ?>
+        <select name="cat" aria-label="<?= $this->escapeHtml($this->__('Filter by category')) ?>">
+            <option value=""><?= $this->escapeHtml($this->__('All categories')) ?></option>
+            <?php foreach ($catOptions as $id => $name): ?>
+                <option value="<?= (int) $id ?>" <?= $catId === (int) $id ? 'selected' : '' ?>><?= $this->escapeHtml($name) ?></option>
+            <?php endforeach; ?>
+        </select>
+        <?php endif; ?>
+        <button type="submit" class="button"><?= $this->escapeHtml($this->__('Search')) ?></button>
+        <?php if ($search !== '' || $catId > 0): ?>
+            <a class="b2b-bulk-order__clear" href="<?= $this->escapeUrl($this->getUrl('bulk-order')) ?>"><?= $this->escapeHtml($this->__('Clear')) ?></a>
+        <?php endif; ?>
+        <div class="b2b-bulk-order__toolbar">
+            <div class="b2b-bulk-order__tax-toggle" role="radiogroup" aria-label="Price display mode">
+                <button type="button" class="b2b-tax-btn <?= $taxMode === 0 ? 'is-active' : '' ?>"
+                        data-mode="0" data-action="b2b-bulk-order-tax">
+                    <?= $this->escapeHtml($this->__('Ex tax')) ?>
                 </button>
-            </form>
-        </section>
-    </div>
+                <button type="button" class="b2b-tax-btn <?= $taxMode === 1 ? 'is-active' : '' ?>"
+                        data-mode="1" data-action="b2b-bulk-order-tax">
+                    <?= $this->escapeHtml($this->__('Inc tax')) ?>
+                </button>
+            </div>
+            <a class="b2b-bulk-order__template-link" href="<?= $this->escapeUrl($this->getTemplateUrl()) ?>">
+                <?= $this->escapeHtml($this->__('Download CSV template')) ?>
+            </a>
+        </div>
+    </form>
 
     <div id="b2b-bulk-unmatched" class="b2b-bulk-order__unmatched" hidden>
         <h3><?= $this->escapeHtml($this->__('Not found on this store')) ?></h3>
-        <p class="hint">
-            <?= $this->escapeHtml($this->__(
-                'These SKUs are unknown - check them and try again. Matched rows below have been added to the grid.',
-            )) ?>
-        </p>
+        <p class="hint"><?= $this->escapeHtml($this->__('These SKUs are unknown - matched rows above have been updated.')) ?></p>
         <ul id="b2b-bulk-unmatched-list"></ul>
     </div>
 
     <form id="b2b-bulk-cart-form" method="post" class="b2b-bulk-order__cart">
         <input type="hidden" name="form_key" value="<?= $this->escapeHtml(Mage::getSingleton('core/session')->getFormKey()) ?>">
+
+        <div class="b2b-bulk-order__count">
+            <?= $this->escapeHtml($this->__('%d products', $total)) ?>
+            <?php if ($search !== ''): ?> · <?= $this->escapeHtml($this->__('matching "%s"', $search)) ?><?php endif; ?>
+            <?php if ($catId > 0 && isset($catOptions[$catId])): ?> · <?= $this->escapeHtml($catOptions[$catId]) ?><?php endif; ?>
+        </div>
+
         <table class="b2b-bulk-order__grid" id="b2b-bulk-grid">
             <thead>
                 <tr>
+                    <th class="col-img" aria-label="image"></th>
                     <th class="col-sku"><?= $this->escapeHtml($this->__('SKU')) ?></th>
                     <th class="col-name"><?= $this->escapeHtml($this->__('Name')) ?></th>
+                    <th class="col-stock"><?= $this->escapeHtml($this->__('Stock')) ?></th>
                     <th class="col-price">
                         <span data-role="tax-label"><?= $this->escapeHtml($taxMode === 1 ? $this->__('Price inc tax') : $this->__('Price ex tax')) ?></span>
                     </th>
                     <th class="col-qty"><?= $this->escapeHtml($this->__('Qty')) ?></th>
                     <th class="col-line"><?= $this->escapeHtml($this->__('Line total')) ?></th>
-                    <th class="col-x" aria-label="remove"></th>
                 </tr>
             </thead>
             <tbody id="b2b-bulk-grid-body">
-                <tr class="b2b-bulk-empty">
-                    <td colspan="6">
-                        <?= $this->escapeHtml($this->__('Paste SKUs above or upload a CSV to populate the grid.')) ?>
-                    </td>
-                </tr>
+                <?php if ($total === 0): ?>
+                    <tr><td colspan="7" class="b2b-bulk-empty">
+                        <?= $this->escapeHtml($this->__('No products match the current filter. Try a different search or clear the filter.')) ?>
+                    </td></tr>
+                <?php endif; ?>
+                <?php foreach ($products as $product): ?>
+                    <?php
+                    /** @var Mage_Catalog_Model_Product $product */
+                    $sku = (string) $product->getSku();
+                    $inc = (float) Mage::helper('tax')->getPrice($product, (float) $product->getFinalPrice(), true);
+                    $exc = (float) Mage::helper('tax')->getPrice($product, (float) $product->getFinalPrice(), false);
+                    $unit = $taxMode === 1 ? $inc : $exc;
+                    $inStock = (bool) Mage::getModel('cataloginventory/stock_item')->loadByProduct($product)->getIsInStock();
+                    $imgUrl = (string) $product->getSmallImage();
+                    if ($imgUrl && $imgUrl !== 'no_selection') {
+                        $imgUrl = Mage::getSingleton('catalog/product_media_config')->getMediaUrl($imgUrl);
+                    } else {
+                        $imgUrl = '';
+                    }
+                    ?>
+                    <tr data-sku="<?= $this->escapeHtml($sku) ?>"
+                        data-price-inc="<?= $this->escapeHtml((string) $inc) ?>"
+                        data-price-ex="<?= $this->escapeHtml((string) $exc) ?>">
+                        <td class="col-img">
+                            <?php if ($imgUrl): ?>
+                                <img src="<?= $this->escapeUrl($imgUrl) ?>" alt="" loading="lazy">
+                            <?php endif; ?>
+                        </td>
+                        <td class="col-sku">
+                            <a href="<?= $this->escapeUrl($product->getProductUrl()) ?>" target="_blank" rel="noopener"><?= $this->escapeHtml($sku) ?></a>
+                        </td>
+                        <td class="col-name"><?= $this->escapeHtml((string) $product->getName()) ?></td>
+                        <td class="col-stock">
+                            <span class="stock-badge <?= $inStock ? 'in' : 'out' ?>"><?= $this->escapeHtml($inStock ? $this->__('In stock') : $this->__('Out of stock')) ?></span>
+                        </td>
+                        <td class="col-price" data-role="unit-price"><?= $this->escapeHtml(Mage::helper('core')->currency($unit, true, false)) ?></td>
+                        <td class="col-qty">
+                            <input type="number" min="0" step="1" value="0" data-role="qty" name="qty[<?= $this->escapeHtml($sku) ?>]" aria-label="Quantity for <?= $this->escapeHtml($sku) ?>" <?= $inStock ? '' : 'disabled' ?>>
+                        </td>
+                        <td class="col-line" data-role="line-total">&mdash;</td>
+                    </tr>
+                <?php endforeach; ?>
             </tbody>
             <tfoot>
                 <tr>
-                    <td colspan="4" style="text-align:right;">
+                    <td colspan="6" style="text-align:right;">
                         <strong data-role="tax-label"><?= $this->escapeHtml($taxMode === 1 ? $this->__('Total inc tax') : $this->__('Total ex tax')) ?></strong>
                     </td>
                     <td class="col-line" id="b2b-bulk-total">&mdash;</td>
-                    <td></td>
                 </tr>
             </tfoot>
         </table>
 
+        <?php if ($pageCount > 1): ?>
+        <nav class="b2b-bulk-order__pager" aria-label="Pagination">
+            <?php if ($currentPage > 1): ?>
+                <a href="<?= $this->escapeUrl($this->getPageUrl($currentPage - 1)) ?>"><?= $this->escapeHtml($this->__('« Prev')) ?></a>
+            <?php endif; ?>
+            <span><?= $this->escapeHtml($this->__('Page %d of %d', $currentPage, $pageCount)) ?></span>
+            <?php if ($currentPage < $pageCount): ?>
+                <a href="<?= $this->escapeUrl($this->getPageUrl($currentPage + 1)) ?>"><?= $this->escapeHtml($this->__('Next »')) ?></a>
+            <?php endif; ?>
+        </nav>
+        <?php endif; ?>
+
         <div class="b2b-bulk-order__actions">
             <button type="submit" formaction="<?= $this->escapeUrl($this->getAddToCartUrl()) ?>"
                     class="button button-primary" id="b2b-bulk-add-to-cart" disabled>
-                <?= $this->escapeHtml($this->__('Buy Now - add all to cart')) ?>
+                <?= $this->escapeHtml($this->__('Buy Now - add selected to cart')) ?>
             </button>
             <?php if ($rfqOk): ?>
                 <button type="submit" formaction="<?= $this->escapeUrl((string) $this->getSendAsQuoteUrl()) ?>"
@@ -123,49 +171,88 @@ $rfqOk   = $this->isRfqAvailable();
             <?php endif; ?>
         </div>
     </form>
+
+    <details class="b2b-bulk-order__paste-advanced">
+        <summary><?= $this->escapeHtml($this->__('Or, paste / upload SKUs')) ?></summary>
+        <div class="b2b-bulk-order__inputs">
+            <section class="b2b-bulk-order__input-block">
+                <h2><?= $this->escapeHtml($this->__('Paste SKUs (one per line)')) ?></h2>
+                <p class="hint"><?= $this->escapeHtml($this->__('Formats accepted: "SKU", "SKU,qty", "SKU qty".')) ?></p>
+                <textarea id="b2b-bulk-paste" rows="6" placeholder="ABL003, 5&#10;WBK002L, 2&#10;msj000t"></textarea>
+                <button type="button" id="b2b-bulk-paste-add" class="button"><?= $this->escapeHtml($this->__('Apply to grid')) ?></button>
+            </section>
+            <section class="b2b-bulk-order__input-block">
+                <h2><?= $this->escapeHtml($this->__('Upload a CSV file')) ?></h2>
+                <p class="hint"><?= $this->escapeHtml($this->__('Two columns: SKU, Quantity. Download the template if unsure.')) ?></p>
+                <form id="b2b-bulk-upload-form" enctype="multipart/form-data">
+                    <input type="hidden" name="form_key" value="<?= $this->escapeHtml(Mage::getSingleton('core/session')->getFormKey()) ?>">
+                    <input type="file" name="file" accept=".csv,.txt" required>
+                    <button type="submit" class="button"><?= $this->escapeHtml($this->__('Apply to grid')) ?></button>
+                </form>
+            </section>
+        </div>
+    </details>
 </div>
 
 <style>
-.b2b-bulk-order { max-width: 1100px; margin: 0 auto; padding: 24px 0; }
+.b2b-bulk-order { max-width: 1240px; margin: 0 auto; padding: 24px 12px; }
 .b2b-bulk-order .page-title h1 { font-size: 28px; margin: 0 0 6px; }
-.b2b-bulk-order__lede { color: #4b5563; margin: 0 0 24px; max-width: 720px; }
-.b2b-bulk-order__toolbar {
-  display: flex; align-items: center; gap: 16px; justify-content: space-between;
-  padding: 12px 0; border-bottom: 1px solid #e5e7eb; margin-bottom: 16px;
+.b2b-bulk-order__lede { color: #4b5563; margin: 0 0 20px; max-width: 780px; }
+
+.b2b-bulk-order__filter {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 12px 0; border-top: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb; margin-bottom: 16px;
 }
+.b2b-bulk-order__filter input[type=search] { flex: 1 1 260px; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 14px; }
+.b2b-bulk-order__filter select { padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 14px; background: white; }
+.b2b-bulk-order__clear { font-size: 13px; color: #6b7280; }
+.b2b-bulk-order__toolbar { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+
 .b2b-bulk-order__tax-toggle { display: inline-flex; border: 1px solid #d1d5db; border-radius: 6px; overflow: hidden; }
-.b2b-tax-btn {
-  background: #fff; border: none; padding: 8px 14px; font-size: 13px; font-weight: 600;
-  cursor: pointer; color: #374151;
-}
+.b2b-tax-btn { background: #fff; border: none; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; color: #374151; }
 .b2b-tax-btn + .b2b-tax-btn { border-left: 1px solid #d1d5db; }
 .b2b-tax-btn.is-active { background: #4f46e5; color: #fff; }
 .b2b-bulk-order__template-link { font-size: 13px; color: #4f46e5; }
-.b2b-bulk-order__inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
+
+.b2b-bulk-order__count { font-size: 13px; color: #6b7280; padding: 6px 0 12px; }
+
+.b2b-bulk-order__unmatched { background: #fef2f2; border: 1px solid #fecaca; padding: 12px 16px; border-radius: 4px; margin-bottom: 16px; }
+.b2b-bulk-order__unmatched h3 { color: #991b1b; margin: 0 0 4px; font-size: 14px; }
+.b2b-bulk-order__unmatched ul { margin: 6px 0 0; padding-left: 18px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; }
+
+.b2b-bulk-order__grid { width: 100%; border-collapse: collapse; background: #fff; }
+.b2b-bulk-order__grid th, .b2b-bulk-order__grid td { padding: 10px 12px; border-bottom: 1px solid #e5e7eb; text-align: left; font-size: 13.5px; vertical-align: middle; }
+.b2b-bulk-order__grid th { background: #f9fafb; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; font-size: 11px; color: #4b5563; }
+.b2b-bulk-order__grid tfoot td { font-weight: 600; background: #f9fafb; }
+.b2b-bulk-order__grid .col-img { width: 56px; padding: 6px; }
+.b2b-bulk-order__grid .col-img img { width: 48px; height: 48px; object-fit: contain; display: block; }
+.b2b-bulk-order__grid .col-sku { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.b2b-bulk-order__grid .col-qty { width: 90px; text-align: right; }
+.b2b-bulk-order__grid .col-qty input { width: 72px; padding: 4px 6px; text-align: right; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.b2b-bulk-order__grid .col-price, .b2b-bulk-order__grid .col-line { text-align: right; font-variant-numeric: tabular-nums; }
+.b2b-bulk-order__grid .b2b-bulk-empty { color: #9ca3af; text-align: center; padding: 32px; }
+.b2b-bulk-order__grid tbody tr:hover { background: #f9fafb; }
+.b2b-bulk-order__grid tbody tr.has-qty { background: #eef2ff; }
+.stock-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+.stock-badge.in { background: #d1fae5; color: #065f46; }
+.stock-badge.out { background: #fee2e2; color: #991b1b; }
+
+.b2b-bulk-order__pager { display: flex; align-items: center; gap: 16px; padding: 14px 0; font-size: 13px; color: #4b5563; }
+.b2b-bulk-order__pager a { color: #4f46e5; text-decoration: none; }
+
+.b2b-bulk-order__actions { display: flex; gap: 12px; margin-top: 16px; padding-top: 12px; border-top: 1px solid #e5e7eb; justify-content: flex-end; }
+.button-primary { background: #4f46e5; color: #fff; }
+.button-primary:disabled, .button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.b2b-bulk-order__paste-advanced { margin-top: 32px; border-top: 1px solid #e5e7eb; padding-top: 16px; }
+.b2b-bulk-order__paste-advanced summary { font-weight: 600; color: #4f46e5; cursor: pointer; padding: 6px 0; }
+.b2b-bulk-order__paste-advanced summary:hover { text-decoration: underline; }
+.b2b-bulk-order__inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 16px; }
 @media (max-width: 720px) { .b2b-bulk-order__inputs { grid-template-columns: 1fr; } }
 .b2b-bulk-order__input-block h2 { font-size: 15px; margin: 0 0 6px; }
 .b2b-bulk-order__input-block .hint { font-size: 12px; color: #6b7280; margin: 0 0 8px; }
 .b2b-bulk-order__input-block textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 4px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
 .b2b-bulk-order__input-block button { margin-top: 8px; }
-
-.b2b-bulk-order__unmatched {
-  background: #fef2f2; border: 1px solid #fecaca; padding: 12px 16px; border-radius: 4px; margin-bottom: 16px;
-}
-.b2b-bulk-order__unmatched h3 { color: #991b1b; margin: 0 0 4px; font-size: 14px; }
-.b2b-bulk-order__unmatched ul { margin: 6px 0 0; padding-left: 18px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; }
-
-.b2b-bulk-order__grid { width: 100%; border-collapse: collapse; background: #fff; }
-.b2b-bulk-order__grid th, .b2b-bulk-order__grid td { padding: 10px 12px; border-bottom: 1px solid #e5e7eb; text-align: left; font-size: 13.5px; }
-.b2b-bulk-order__grid th { background: #f9fafb; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; font-size: 11px; color: #4b5563; }
-.b2b-bulk-order__grid tfoot td { font-weight: 600; }
-.b2b-bulk-order__grid .col-qty input { width: 70px; padding: 4px 6px; text-align: right; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
-.b2b-bulk-order__grid .col-price, .b2b-bulk-order__grid .col-line, .b2b-bulk-order__grid .col-qty { text-align: right; font-variant-numeric: tabular-nums; }
-.b2b-bulk-order__grid .col-x button { background: transparent; border: none; cursor: pointer; color: #9ca3af; font-size: 16px; }
-.b2b-bulk-order__grid .b2b-bulk-empty td { color: #9ca3af; text-align: center; padding: 20px; }
-
-.b2b-bulk-order__actions { display: flex; gap: 12px; margin-top: 16px; justify-content: flex-end; }
-.button-primary { background: #4f46e5; color: #fff; }
-.button-primary:disabled, .button:disabled { opacity: 0.55; cursor: not-allowed; }
 </style>
 
 <script>
@@ -180,7 +267,6 @@ $rfqOk   = $this->isRfqAvailable();
     'currencyCode' => Mage::app()->getStore()->getCurrentCurrencyCode(),
   ]) ?>;
   let taxMode = CFG.taxMode | 0;
-  const rows = new Map(); // sku -> {sku, name, qty, unitPriceInc, unitPriceEx, url, productId}
 
   const $body = document.getElementById('b2b-bulk-grid-body');
   const $unmatched = document.getElementById('b2b-bulk-unmatched');
@@ -190,13 +276,31 @@ $rfqOk   = $this->isRfqAvailable();
   const $total = document.getElementById('b2b-bulk-total');
 
   function money(n) {
-    try {
-      return new Intl.NumberFormat(undefined, { style: 'currency', currency: CFG.currencyCode }).format(n);
-    } catch (e) {
-      return (Math.round(n * 100) / 100).toFixed(2);
-    }
+    try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: CFG.currencyCode }).format(n); }
+    catch (e) { return (Math.round(n * 100) / 100).toFixed(2); }
   }
-  function unitPrice(row) { return taxMode === 1 ? row.unitPriceInc : row.unitPriceEx; }
+  function unitOf(tr) { return taxMode === 1 ? parseFloat(tr.dataset.priceInc || '0') : parseFloat(tr.dataset.priceEx || '0'); }
+  function qtyOf(tr) { const i = tr.querySelector('[data-role="qty"]'); return i ? Math.max(0, parseInt(i.value, 10) || 0) : 0; }
+  function updateRow(tr) {
+    const qty = qtyOf(tr);
+    const unit = unitOf(tr);
+    const line = qty * unit;
+    tr.classList.toggle('has-qty', qty > 0);
+    tr.querySelector('[data-role="line-total"]').textContent = qty > 0 ? money(line) : '-';
+    return line;
+  }
+  function refreshTotals() {
+    let total = 0;
+    let anyQty = false;
+    document.querySelectorAll('#b2b-bulk-grid tbody tr[data-sku]').forEach(tr => {
+      const line = updateRow(tr);
+      total += line;
+      if (line > 0) anyQty = true;
+    });
+    $total.textContent = anyQty ? money(total) : '-';
+    $addToCart.disabled = !anyQty;
+    if ($sendQuote) $sendQuote.disabled = !anyQty;
+  }
   function refreshLabels() {
     document.querySelectorAll('[data-role="tax-label"]').forEach(el => {
       const isTotal = el.tagName.toLowerCase() === 'strong';
@@ -204,67 +308,40 @@ $rfqOk   = $this->isRfqAvailable();
         ? (taxMode === 1 ? 'Total inc tax' : 'Total ex tax')
         : (taxMode === 1 ? 'Price inc tax' : 'Price ex tax');
     });
-  }
-  function render() {
-    if (rows.size === 0) {
-      $body.innerHTML = '<tr class="b2b-bulk-empty"><td colspan="6">Paste SKUs above or upload a CSV to populate the grid.</td></tr>';
-      $addToCart.disabled = true;
-      if ($sendQuote) $sendQuote.disabled = true;
-      $total.textContent = '-';
-      return;
-    }
-    let total = 0;
-    const trs = [];
-    for (const [sku, row] of rows) {
-      const line = unitPrice(row) * row.qty;
-      total += line;
-      trs.push(
-        '<tr data-sku="' + escapeAttr(sku) + '">'
-        + '<td class="col-sku"><a href="' + escapeAttr(row.url) + '" target="_blank" rel="noopener">' + escapeHtml(sku) + '</a></td>'
-        + '<td class="col-name">' + escapeHtml(row.name) + '</td>'
-        + '<td class="col-price">' + money(unitPrice(row)) + '</td>'
-        + '<td class="col-qty">'
-        +   '<input type="number" min="1" step="1" value="' + row.qty + '" data-role="qty" aria-label="Quantity for ' + escapeAttr(sku) + '">'
-        +   '<input type="hidden" name="sku[]" value="' + escapeAttr(sku) + '">'
-        +   '<input type="hidden" name="qty[]" value="' + row.qty + '" data-role="qty-hidden">'
-        + '</td>'
-        + '<td class="col-line">' + money(line) + '</td>'
-        + '<td class="col-x"><button type="button" data-role="remove" aria-label="Remove ' + escapeAttr(sku) + '">&times;</button></td>'
-        + '</tr>'
-      );
-    }
-    $body.innerHTML = trs.join('');
-    $total.textContent = money(total);
-    $addToCart.disabled = false;
-    if ($sendQuote) $sendQuote.disabled = false;
-  }
-  function escapeHtml(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  }
-  function escapeAttr(s) { return escapeHtml(s); }
-
-  function mergeMatched(matched) {
-    for (const row of matched) {
-      const key = row.sku;
-      if (rows.has(key)) {
-        const cur = rows.get(key);
-        cur.qty += row.qty;
-      } else {
-        rows.set(key, row);
-      }
-    }
-  }
-  function showUnmatched(list) {
-    if (!list || !list.length) {
-      $unmatched.hidden = true;
-      $unmatchedList.innerHTML = '';
-      return;
-    }
-    $unmatched.hidden = false;
-    $unmatchedList.innerHTML = list.map(s => '<li>' + escapeHtml(s) + '</li>').join('');
+    // Also update visible per-row unit price
+    document.querySelectorAll('#b2b-bulk-grid tbody tr[data-sku]').forEach(tr => {
+      tr.querySelector('[data-role="unit-price"]').textContent = money(unitOf(tr));
+    });
   }
 
-  async function post(url, body, isFormData) {
+  $body.addEventListener('input', (ev) => {
+    if (ev.target.matches('[data-role="qty"]')) {
+      const tr = ev.target.closest('tr');
+      refreshTotals();
+      // slight optimisation: only recompute this row's line + running total below
+      tr.querySelector('[data-role="line-total"]').textContent = qtyOf(tr) > 0 ? money(qtyOf(tr) * unitOf(tr)) : '-';
+    }
+  });
+
+  document.querySelectorAll('[data-action="b2b-bulk-order-tax"]').forEach(btn => {
+    btn.addEventListener('click', async (ev) => {
+      ev.preventDefault();
+      const mode = btn.getAttribute('data-mode') | 0;
+      try {
+        await fetch(CFG.taxUrl, {
+          method: 'POST',
+          body: new URLSearchParams({ form_key: CFG.formKey, mode: String(mode) }),
+          credentials: 'same-origin',
+        });
+      } catch (e) { /* non-fatal */ }
+      taxMode = mode;
+      document.querySelectorAll('.b2b-tax-btn').forEach(b => b.classList.toggle('is-active', (b.getAttribute('data-mode') | 0) === mode));
+      refreshLabels();
+      refreshTotals();
+    });
+  });
+
+  async function postJson(url, body, isFormData) {
     const res = await fetch(url, {
       method: 'POST',
       body: isFormData ? body : new URLSearchParams(body),
@@ -274,70 +351,50 @@ $rfqOk   = $this->isRfqAvailable();
     return res.json();
   }
 
+  function applyToGrid(matched, unmatched) {
+    for (const m of matched) {
+      const tr = document.querySelector('#b2b-bulk-grid tbody tr[data-sku="' + CSS.escape(m.sku) + '"]');
+      if (tr) {
+        const inp = tr.querySelector('[data-role="qty"]');
+        const curr = parseInt(inp.value, 10) || 0;
+        inp.value = String(curr + m.qty);
+      } else {
+        // SKU exists in catalogue but isn't on the current page (search filter etc).
+        // Show it as an "off-page" row so the buyer knows their paste was accepted.
+        // Simpler: add to unmatched list with a note.
+        unmatched.push(m.sku + ' (on another page)');
+      }
+    }
+    if (unmatched.length) {
+      $unmatched.hidden = false;
+      $unmatchedList.innerHTML = unmatched.map(s => '<li>' + s.replace(/[<>&]/g, '') + '</li>').join('');
+    } else {
+      $unmatched.hidden = true;
+      $unmatchedList.innerHTML = '';
+    }
+    refreshTotals();
+  }
+
   document.getElementById('b2b-bulk-paste-add').addEventListener('click', async () => {
     const lines = document.getElementById('b2b-bulk-paste').value;
     if (!lines.trim()) return;
     try {
-      const data = await post(CFG.parseUrl, { form_key: CFG.formKey, lines });
-      mergeMatched(data.matched);
-      showUnmatched(data.unmatched);
-      render();
+      const data = await postJson(CFG.parseUrl, { form_key: CFG.formKey, lines });
+      applyToGrid(data.matched, data.unmatched.slice());
       document.getElementById('b2b-bulk-paste').value = '';
-    } catch (e) {
-      alert('Lookup failed: ' + e.message);
-    }
+    } catch (e) { alert('Lookup failed: ' + e.message); }
   });
 
   document.getElementById('b2b-bulk-upload-form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const form = ev.target;
-    const fd = new FormData(form);
     try {
-      const data = await post(CFG.uploadUrl, fd, true);
-      mergeMatched(data.matched);
-      showUnmatched(data.unmatched);
-      render();
+      const data = await postJson(CFG.uploadUrl, new FormData(form), true);
+      applyToGrid(data.matched, data.unmatched.slice());
       form.reset();
-    } catch (e) {
-      alert('Upload failed: ' + e.message);
-    }
+    } catch (e) { alert('Upload failed: ' + e.message); }
   });
 
-  document.querySelectorAll('[data-action="b2b-bulk-order-tax"]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const mode = btn.getAttribute('data-mode') | 0;
-      try {
-        await post(CFG.taxUrl, { form_key: CFG.formKey, mode: String(mode) });
-      } catch (e) { /* non-fatal - session update is a nicety, UI switch below is what matters */ }
-      taxMode = mode;
-      document.querySelectorAll('.b2b-tax-btn').forEach(b => b.classList.toggle('is-active', (b.getAttribute('data-mode') | 0) === mode));
-      refreshLabels();
-      render();
-    });
-  });
-
-  $body.addEventListener('input', (ev) => {
-    if (ev.target.matches('[data-role="qty"]')) {
-      const tr = ev.target.closest('tr');
-      const sku = tr.getAttribute('data-sku');
-      const row = rows.get(sku);
-      if (!row) return;
-      const q = Math.max(1, parseInt(ev.target.value, 10) || 1);
-      row.qty = q;
-      tr.querySelector('[data-role="qty-hidden"]').value = q;
-      tr.querySelector('.col-line').textContent = money(unitPrice(row) * q);
-      let total = 0;
-      rows.forEach(r => { total += unitPrice(r) * r.qty; });
-      $total.textContent = money(total);
-    }
-  });
-  $body.addEventListener('click', (ev) => {
-    if (ev.target.matches('[data-role="remove"]')) {
-      const tr = ev.target.closest('tr');
-      const sku = tr.getAttribute('data-sku');
-      rows.delete(sku);
-      render();
-    }
-  });
+  refreshTotals();
 })();
 </script>

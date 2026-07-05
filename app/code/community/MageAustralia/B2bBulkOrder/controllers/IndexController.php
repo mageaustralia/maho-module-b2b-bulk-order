@@ -185,21 +185,39 @@ class MageAustralia_B2bBulkOrder_IndexController extends Mage_Core_Controller_Fr
     }
 
     /**
-     * Read the sku[] + qty[] arrays from the POST into a SKU=>qty map.
+     * Read the POST body into a SKU=>qty map. Supports two shapes:
+     *   1. `qty[SKU] = N` - how the pre-populated grid submits (v0.2+)
+     *   2. `sku[i] + qty[i]` (parallel arrays) - how the paste-populated grid
+     *      submitted in v0.1; kept for headless / API-driven POSTs
      * @return array<string, int>
      */
     private function _normalizeLineItems(): array
     {
         $post = $this->getRequest()->getPost();
-        $skus = (array) ($post['sku'] ?? []);
-        $qtys = (array) ($post['qty'] ?? []);
+        $qtyMap = (array) ($post['qty'] ?? []);
         $out = [];
+
+        // Shape 1: qty[SKU] = N
+        if (array_keys($qtyMap) !== range(0, max(0, count($qtyMap) - 1))) {
+            foreach ($qtyMap as $sku => $qty) {
+                $sku = trim((string) $sku);
+                $qty = (int) $qty;
+                if ($sku === '' || $qty < 1) {
+                    continue;
+                }
+                $out[$sku] = ($out[$sku] ?? 0) + $qty;
+            }
+            return $out;
+        }
+
+        // Shape 2: parallel sku[]/qty[]
+        $skus = (array) ($post['sku'] ?? []);
         foreach ($skus as $i => $sku) {
             $sku = trim((string) $sku);
             if ($sku === '') {
                 continue;
             }
-            $qty = (int) ($qtys[$i] ?? 1);
+            $qty = (int) ($qtyMap[$i] ?? 1);
             if ($qty < 1) {
                 continue;
             }

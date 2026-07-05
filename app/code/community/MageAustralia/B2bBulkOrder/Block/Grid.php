@@ -68,4 +68,105 @@ class MageAustralia_B2bBulkOrder_Block_Grid extends Mage_Core_Block_Template
     {
         return $this->getSendAsQuoteUrl() !== null;
     }
+
+    /* ---- Product listing ---- */
+
+    public function getSearchTerm(): string
+    {
+        return trim((string) $this->getRequest()->getParam('q', ''));
+    }
+
+    public function getCurrentCategoryId(): int
+    {
+        return (int) $this->getRequest()->getParam('cat', 0);
+    }
+
+    public function getCurrentPage(): int
+    {
+        $p = (int) $this->getRequest()->getParam('p', 1);
+        return $p > 0 ? $p : 1;
+    }
+
+    public function getPageSize(): int
+    {
+        return 50;
+    }
+
+    /**
+     * Build the product collection the page renders. Filters:
+     *   - search: matches SKU or name (LIKE)
+     *   - category: single-category scope (subcategories inherited)
+     *
+     * @return Mage_Catalog_Model_Resource_Product_Collection
+     */
+    public function getProductCollection()
+    {
+        /** @var Mage_Catalog_Model_Resource_Product_Collection $collection */
+        $collection = Mage::getResourceModel('catalog/product_collection')
+            ->addAttributeToSelect(['name', 'sku', 'price', 'small_image', 'stock_item'])
+            ->addAttributeToFilter('status', Mage_Catalog_Model_Product_Status::STATUS_ENABLED)
+            ->addAttributeToFilter('visibility', ['neq' => Mage_Catalog_Model_Product_Visibility::VISIBILITY_NOT_VISIBLE])
+            ->addStoreFilter();
+        $collection->addAttributeToSort('name', 'ASC');
+
+        $q = $this->getSearchTerm();
+        if ($q !== '') {
+            $like = '%' . $q . '%';
+            $collection->addFieldToFilter([
+                ['attribute' => 'sku',  'like' => $like],
+                ['attribute' => 'name', 'like' => $like],
+            ]);
+        }
+
+        $catId = $this->getCurrentCategoryId();
+        if ($catId > 0) {
+            $collection->addCategoryFilter(Mage::getModel('catalog/category')->load($catId));
+        }
+
+        $collection->setPageSize($this->getPageSize())
+            ->setCurPage($this->getCurrentPage());
+
+        return $collection;
+    }
+
+    /**
+     * Categories to expose in the filter dropdown - direct children of the root.
+     * Kept short deliberately (buyer scan-time > exhaustive tree).
+     *
+     * @return array<int, string>
+     */
+    public function getCategoryOptions(): array
+    {
+        $rootId = (int) Mage::app()->getStore()->getRootCategoryId();
+        if (!$rootId) {
+            return [];
+        }
+        /** @var Mage_Catalog_Model_Resource_Category_Collection $cats */
+        $cats = Mage::getResourceModel('catalog/category_collection')
+            ->addAttributeToSelect('name')
+            ->addAttributeToFilter('parent_id', $rootId)
+            ->addAttributeToFilter('is_active', 1)
+            ->addAttributeToSort('position', 'ASC');
+        $out = [];
+        foreach ($cats as $cat) {
+            $out[(int) $cat->getId()] = (string) $cat->getName();
+        }
+        return $out;
+    }
+
+    /** Build a page URL preserving search / category filters. */
+    public function getPageUrl(int $page): string
+    {
+        $params = [];
+        if ($this->getSearchTerm() !== '') { $params['q'] = $this->getSearchTerm(); }
+        if ($this->getCurrentCategoryId() > 0) { $params['cat'] = $this->getCurrentCategoryId(); }
+        $params['p'] = $page;
+        return $this->getUrl('bulk-order', ['_query' => $params]);
+    }
+
+    /** Total pages for the current filter set. */
+    public function getPageCount(): int
+    {
+        return (int) $this->getProductCollection()->getLastPageNumber();
+    }
 }

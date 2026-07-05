@@ -18,7 +18,12 @@ declare(strict_types=1);
  */
 class MageAustralia_B2bBulkOrder_Block_Grid extends Mage_Core_Block_Template
 {
-    public function helper(): MageAustralia_B2bBulkOrder_Helper_Data
+    /**
+     * Own helper - can't name this method `helper()` because
+     * Mage_Core_Block_Abstract::helper($name) already exists with a
+     * different signature; PHP 8 signature check fatals the class load.
+     */
+    public function b2bHelper(): MageAustralia_B2bBulkOrder_Helper_Data
     {
         /** @var MageAustralia_B2bBulkOrder_Helper_Data $h */
         $h = Mage::helper('b2bbulkorder');

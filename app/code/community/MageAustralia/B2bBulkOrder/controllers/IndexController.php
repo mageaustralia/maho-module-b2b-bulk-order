@@ -10,7 +10,6 @@
 
 declare(strict_types=1);
 
-use Maho\Config\Route;
 
 /**
  * The customer-facing bulk-order controller.
@@ -37,23 +36,35 @@ class MageAustralia_B2bBulkOrder_IndexController extends Mage_Core_Controller_Fr
         parent::preDispatch();
         /** @var MageAustralia_B2bBulkOrder_Helper_Data $helper */
         $helper = Mage::helper('b2bbulkorder');
-        if (!$helper->isAccessible()) {
-            $this->_forward('noRoute');
+        if ($helper->isAccessible()) {
             return;
         }
-        // preDispatch has no return type declared upstream; return $this for chaining.
-        // phpcs:ignore
+        // Not eligible. If it's because they're not logged in, redirect to
+        // login with a return-to so post-login they land back here. Otherwise
+        // it's a group / disabled-module gate - send them to the home page
+        // (a hard 404 would be misleading; the page exists, they're just not
+        // in the allowlist). NEVER _forward('noRoute') - the noRoute handler
+        // rewrites the request back through the same router and re-enters
+        // this preDispatch = infinite loop terminated by Maho's iteration cap.
+        $customer = Mage::getSingleton('customer/session');
+        if (!$customer->isLoggedIn()
+            && (bool) Mage::getStoreConfigFlag(MageAustralia_B2bBulkOrder_Helper_Data::XML_REQUIRE_LOGIN)
+        ) {
+            $customer->setBeforeAuthUrl(Mage::getUrl('bulk-order'));
+            $this->_redirect('customer/account/login');
+            $this->setFlag('', self::FLAG_NO_DISPATCH, true);
+            return;
+        }
+        $this->_redirect('');
+        $this->setFlag('', self::FLAG_NO_DISPATCH, true);
     }
 
-    #[Route('/bulk-order', methods: ['GET'])]
-    #[Route('/bulk-order/index', methods: ['GET'])]
     public function indexAction(): void
     {
         $this->loadLayout();
         $this->renderLayout();
     }
 
-    #[Route('/bulk-order/parse', methods: ['POST'])]
     public function parseAction(): void
     {
         $this->_validateFormKey();
@@ -65,7 +76,6 @@ class MageAustralia_B2bBulkOrder_IndexController extends Mage_Core_Controller_Fr
         $this->_respondWithMatchResult($helper, $requested);
     }
 
-    #[Route('/bulk-order/upload', methods: ['POST'])]
     public function uploadAction(): void
     {
         $this->_validateFormKey();
@@ -106,7 +116,6 @@ class MageAustralia_B2bBulkOrder_IndexController extends Mage_Core_Controller_Fr
             ]));
     }
 
-    #[Route('/bulk-order/template', methods: ['GET'])]
     public function templateAction(): void
     {
         $body = "SKU,Quantity\r\n"
@@ -120,7 +129,6 @@ class MageAustralia_B2bBulkOrder_IndexController extends Mage_Core_Controller_Fr
             ->setBody($body);
     }
 
-    #[Route('/bulk-order/add-to-cart', methods: ['POST'])]
     public function addToCartAction(): void
     {
         $this->_validateFormKey();
@@ -163,7 +171,6 @@ class MageAustralia_B2bBulkOrder_IndexController extends Mage_Core_Controller_Fr
         $this->_redirect('*/*/');
     }
 
-    #[Route('/bulk-order/set-tax-display', methods: ['POST'])]
     public function setTaxDisplayAction(): void
     {
         $this->_validateFormKey();

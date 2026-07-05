@@ -69,6 +69,24 @@ class MageAustralia_B2bBulkOrder_Block_Grid extends Mage_Core_Block_Template
         return $this->getSendAsQuoteUrl() !== null;
     }
 
+    /**
+     * URL the "Save as requisition list" button targets. The
+     * B2bRequisitionList module registers this route; if it isn't
+     * installed the button is hidden.
+     */
+    public function getSaveAsRequisitionUrl(): ?string
+    {
+        if (!class_exists('MageAustralia_B2bRequisitionList_Helper_Data')) {
+            return null;
+        }
+        return $this->getUrl('requisition/index/saveFromBulk');
+    }
+
+    public function isRequisitionAvailable(): bool
+    {
+        return $this->getSaveAsRequisitionUrl() !== null;
+    }
+
     /* ---- Product listing ---- */
 
     public function getSearchTerm(): string

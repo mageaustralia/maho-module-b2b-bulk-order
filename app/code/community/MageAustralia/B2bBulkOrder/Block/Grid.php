@@ -45,11 +45,15 @@ class MageAustralia_B2bBulkOrder_Block_Grid extends Mage_Core_Block_Template
     }
     public function getAddToCartUrl(): string
     {
-        return $this->getUrl('bulk-order/index/add-to-cart');
+        // Maho's router matches URL action segments literally against method
+        // names (camelCase), NOT the traditional Magento 1 underscore/hyphen
+        // convention. `add-to-cart` and `add_to_cart` both 404; `addToCart`
+        // maps to addToCartAction().
+        return $this->getUrl('bulk-order/index/addToCart');
     }
     public function getSetTaxDisplayUrl(): string
     {
-        return $this->getUrl('bulk-order/index/set-tax-display');
+        return $this->getUrl('bulk-order/index/setTaxDisplay');
     }
 
     /**

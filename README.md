@@ -6,6 +6,12 @@ Storefront bulk-order page for B2B customers.
 > add-to-cart + tax-display all working. Send-as-Quote button turns on
 > when the companion RFQ module (MageAustralia B2B Pro) is installed.
 
+## Screenshots
+
+**Search or paste SKUs, set quantities, then Buy Now, Save as list, or Send as Quote:**
+
+![Bulk order grid](screenshots/bulk-order-grid.png)
+
 ## What ships
 
 - **Storefront route** at `/bulk-order/` (frontend controller,

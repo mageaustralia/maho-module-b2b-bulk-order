@@ -56,7 +56,8 @@ Storefront bulk-order page for B2B customers.
 
 The bulk-order grid template includes a *"Send as Quote request"* submit
 alongside *"Buy Now - add all to cart"*. The Send-as-Quote button is only
-rendered if the companion RFQ module is installed (part of the commercial
+rendered if the companion RFQ module is installed, and *Save as list* when
+the requisition-list module is installed (both part of the commercial
 MageAustralia B2B Pro suite - contact us for access);
 if it isn't, the button is hidden and the grid only offers the Buy-Now
 path.

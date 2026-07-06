@@ -4,7 +4,7 @@ Storefront bulk-order page for B2B customers.
 
 > **Status:** v0.1 - storefront page + CSV template + parse + upload +
 > add-to-cart + tax-display all working. Send-as-Quote button turns on
-> when the companion `maho-module-b2b-rfq` module is installed.
+> when the companion RFQ module (MageAustralia B2B Pro) is installed.
 
 ## What ships
 
@@ -50,7 +50,8 @@ Storefront bulk-order page for B2B customers.
 
 The bulk-order grid template includes a *"Send as Quote request"* submit
 alongside *"Buy Now - add all to cart"*. The Send-as-Quote button is only
-rendered if the `mageaustralia/maho-module-b2b-rfq` module is installed;
+rendered if the companion RFQ module is installed (part of the commercial
+MageAustralia B2B Pro suite - contact us for access);
 if it isn't, the button is hidden and the grid only offers the Buy-Now
 path.
 

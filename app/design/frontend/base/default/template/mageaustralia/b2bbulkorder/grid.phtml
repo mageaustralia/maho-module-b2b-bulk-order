@@ -1001,23 +1001,34 @@ $catOptions = $this->getCategoryOptions();
   }
 
   function applyRowToGrid(row) {
-    // Reuse an existing row for the same SKU (bump qty).
-    const existing = $body.querySelector('tr[data-sku="' + CSS.escape(row.sku) + '"]');
+    // Reuse an existing CART row for the same SKU (bump qty).
+    //
+    // Important: the catalog display rows for downloadable / custom-options
+    // products share the SAME SKU as the cart row we're about to insert
+    // (e.g. hbm003 for 'Alice in Wonderland' or abl000 for 'Isla Crossbody
+    // Handbag') - because the parent SKU IS what carts. Those catalog rows
+    // don't have a qty input; they have a 'Choose options' button. We
+    // MUST NOT treat them as existing cart rows, otherwise the bump-qty
+    // branch runs, silently no-ops (no qty input to bump), and the modal
+    // closes without visible effect - which is the bug the user hit.
+    //
+    // Rule: an "existing cart row" is a row with a qty input for our form.
+    const candidates = $body.querySelectorAll('tr[data-sku="' + CSS.escape(row.sku) + '"]');
+    let existing = null;
+    for (const c of candidates) {
+      if (c.querySelector('[data-role="qty"]')) {
+        // For configured products, we should only merge with a cart row
+        // that has the SAME config blob - a different option combination
+        // is a different cart line.
+        const cfgInp = c.querySelector('input[data-role="config"]');
+        const existingCfg = cfgInp ? cfgInp.value : '';
+        const newCfg = row.config ? JSON.stringify(row.config) : '';
+        if (existingCfg === newCfg) { existing = c; break; }
+      }
+    }
     if (existing) {
       const qtyInp = existing.querySelector('[data-role="qty"]');
-      if (qtyInp) qtyInp.value = String((parseInt(qtyInp.value, 10) || 0) + row.qty);
-      // Update config blob if this row's config differs
-      if (row.config) {
-        let cfgInp = existing.querySelector('input[data-role="config"]');
-        if (!cfgInp) {
-          cfgInp = document.createElement('input');
-          cfgInp.type = 'hidden';
-          cfgInp.dataset.role = 'config';
-          cfgInp.name = 'config[' + row.sku + ']';
-          existing.appendChild(cfgInp);
-        }
-        cfgInp.value = JSON.stringify(row.config);
-      }
+      qtyInp.value = String((parseInt(qtyInp.value, 10) || 0) + row.qty);
       existing.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }

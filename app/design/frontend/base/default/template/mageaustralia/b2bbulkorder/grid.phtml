@@ -137,9 +137,15 @@ $catOptions = $this->getCategoryOptions();
                         <td class="col-sku">
                             <a href="<?= $this->escapeUrl($product->getProductUrl()) ?>" target="_blank" rel="noopener"><?= $this->escapeHtml($sku) ?></a>
                             <?php if ($needsOptions): ?>
-                                <?php $badgeLabel = $typeId === Mage_Catalog_Model_Product_Type::TYPE_CONFIGURABLE
-                                    ? $this->__('has variants')
-                                    : $this->__('has options'); ?>
+                                <?php
+                                $badgeLabel = match ($typeId) {
+                                    Mage_Catalog_Model_Product_Type::TYPE_CONFIGURABLE => $this->__('has variants'),
+                                    Mage_Downloadable_Model_Product_Type::TYPE_DOWNLOADABLE => $this->__('downloads'),
+                                    Mage_Catalog_Model_Product_Type::TYPE_GROUPED => $this->__('grouped'),
+                                    Mage_Catalog_Model_Product_Type::TYPE_BUNDLE => $this->__('bundle'),
+                                    default => $this->__('has options'),
+                                };
+                                ?>
                                 <span class="type-badge"><?= $this->escapeHtml($badgeLabel) ?></span>
                             <?php endif; ?>
                         </td>
@@ -156,26 +162,25 @@ $catOptions = $this->getCategoryOptions();
                         </td>
                         <td class="col-qty">
                             <?php if ($needsOptions): ?>
-                                <?php if ($typeId === Mage_Catalog_Model_Product_Type::TYPE_CONFIGURABLE): ?>
-                                    <?php /* Configurable products get the inline modal picker */ ?>
+                                <?php if ($typeId === Mage_Catalog_Model_Product_Type::TYPE_BUNDLE): ?>
+                                    <?php /* Bundles need a nested sub-picker with per-selection qty controls; that's
+                                            genuinely PDP-scale UI, so keep the PDP link for now. */ ?>
+                                    <a class="button button-small" href="<?= $this->escapeUrl($product->getProductUrl()) ?>"
+                                       target="_blank" rel="noopener"
+                                       title="<?= $this->escapeHtml($this->__('Bundles have a nested sub-product picker - open the product page to configure.')) ?>">
+                                        <?= $this->escapeHtml($this->__('Configure bundle →')) ?>
+                                    </a>
+                                <?php else: ?>
+                                    <?php /* Everything else - configurable, downloadable, grouped, custom-options -
+                                            gets the inline modal. Type-dispatched renderer inside the JS. */ ?>
                                     <button type="button" class="button button-small"
                                             data-action="b2b-choose-options"
                                             data-product-id="<?= (int) $product->getId() ?>"
                                             data-sku="<?= $this->escapeHtml($sku) ?>"
                                             data-name="<?= $this->escapeHtml((string) $product->getName()) ?>"
-                                            title="<?= $this->escapeHtml($this->__('Pick a variant + qty inline. The chosen variant appears as its own row below.')) ?>">
+                                            title="<?= $this->escapeHtml($this->__('Configure options + qty inline; the configured product lands as its own row below.')) ?>">
                                         <?= $this->escapeHtml($this->__('Choose options →')) ?>
                                     </button>
-                                <?php else: ?>
-                                    <?php /* Downloadable, bundle, grouped, and custom-options need the full PDP - the modal
-                                            can't cleanly render bundle sub-picker / downloadable link list / grouped-child
-                                            qty grid / free-text custom options. Open the PDP in a new tab; the buyer configures
-                                            there, comes back to keep filling in other rows. */ ?>
-                                    <a class="button button-small" href="<?= $this->escapeUrl($product->getProductUrl()) ?>"
-                                       target="_blank" rel="noopener"
-                                       title="<?= $this->escapeHtml($this->__('Opens the product page in a new tab so you can pick options and add to cart, then come back to this list.')) ?>">
-                                        <?= $this->escapeHtml($this->__('Open product page →')) ?>
-                                    </a>
                                 <?php endif; ?>
                             <?php else: ?>
                                 <input type="number" min="0" step="1" value="0" data-role="qty" name="qty[<?= $this->escapeHtml($sku) ?>]" aria-label="Quantity for <?= $this->escapeHtml($sku) ?>" <?= $inStock ? '' : 'disabled' ?>>
@@ -575,9 +580,26 @@ $catOptions = $this->getCategoryOptions();
   }
   function showError(msg) { $modalError.textContent = msg; $modalError.hidden = false; }
 
-  function renderFields() {
+  // Escape helper for user-provided strings that end up inside .innerHTML.
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+  }[c])); }
+
+  // ─── Type-dispatched renderers ─────────────────────────────────
+  // Each renderer takes the JSON payload from /bulk-order/index/options
+  // and returns an object shaped:
+  //   {
+  //     canAdd: () => boolean,        // is the modal ready to commit?
+  //     collect: () => Array<row>,    // one or many rows to add to the grid
+  //   }
+  // where each row is { sku, name, qty, priceEx, priceInc, inStock,
+  //                     config?: {...} }.  config gets JSON-blob'd into a
+  // hidden config[SKU] input on the row so addToCartAction merges it into
+  // Mage's addProduct params.
+
+  function renderConfigurable(data) {
     $modalFields.innerHTML = '';
-    for (const opt of modalState.options) {
+    for (const opt of (data.options || [])) {
       const wrap = document.createElement('div');
       const lbl = document.createElement('label');
       lbl.textContent = opt.label || opt.code;
@@ -585,6 +607,7 @@ $catOptions = $this->getCategoryOptions();
       const sel = document.createElement('select');
       sel.id = 'b2b-opt-' + opt.code;
       sel.dataset.optionCode = opt.code;
+      sel.dataset.role = 'attr';
       const placeholder = document.createElement('option');
       placeholder.value = '';
       placeholder.textContent = '-- ' + (opt.label || opt.code) + ' --';
@@ -595,63 +618,343 @@ $catOptions = $this->getCategoryOptions();
         o.textContent = v.label;
         sel.appendChild(o);
       }
-      sel.addEventListener('change', onSelectionChange);
+      sel.addEventListener('change', refreshModalState);
       wrap.appendChild(lbl);
       wrap.appendChild(sel);
       $modalFields.appendChild(wrap);
     }
+    return {
+      canAdd() {
+        const opts = data.options || [];
+        if (!opts.length) return false;
+        const sel = readAttrSelection();
+        if (!opts.every(o => sel[o.code] !== undefined)) return false;
+        const v = findVariant(sel);
+        return !!(v && v.inStock);
+      },
+      collect() {
+        const sel = readAttrSelection();
+        const v = findVariant(sel);
+        if (!v) return [];
+        return [{ sku: v.sku, name: v.name || data.name, qty: readModalQty(),
+                  priceEx: v.priceEx, priceInc: v.priceInc, inStock: v.inStock,
+                  badge: 'variant' }];
+      },
+      updateSummary() {
+        const sel = readAttrSelection();
+        const opts = data.options || [];
+        const complete = opts.every(o => sel[o.code] !== undefined);
+        if (!complete) { hideSummary(); return; }
+        const v = findVariant(sel);
+        if (!v) { showError("That combination isn't available."); hideSummary(); return; }
+        clearError();
+        showSummary({
+          sku: v.sku,
+          priceEx: v.priceEx, priceInc: v.priceInc, inStock: v.inStock,
+        });
+        $modalQtyRow.hidden = !v.inStock;
+      },
+    };
+    function readAttrSelection() {
+      const out = {};
+      $modalFields.querySelectorAll('select[data-role="attr"]').forEach(s => {
+        if (s.value !== '') out[s.dataset.optionCode] = parseInt(s.value, 10);
+      });
+      return out;
+    }
+    function findVariant(sel) {
+      return (data.variants || []).find(v => {
+        for (const [code, id] of Object.entries(sel)) {
+          if ((v.attributes[code] | 0) !== (id | 0)) return false;
+        }
+        return true;
+      });
+    }
   }
 
-  function onSelectionChange() {
-    const selection = {};
-    $modalFields.querySelectorAll('select').forEach(s => {
-      if (s.value !== '') selection[s.dataset.optionCode] = parseInt(s.value, 10);
-    });
-    modalState.selection = selection;
-    const complete = modalState.options.every(o => selection[o.code] !== undefined);
-    if (!complete) {
-      $modalSel.hidden = true;
-      $modalQtyRow.hidden = true;
-      $modalAdd.disabled = true;
-      modalState.currentVariant = null;
-      return;
-    }
-    // Find matching variant
-    const match = modalState.variants.find(v => {
-      for (const [code, id] of Object.entries(selection)) {
-        if ((v.attributes[code] | 0) !== (id | 0)) return false;
+  function renderDownloadable(data) {
+    $modalFields.innerHTML = '';
+    const separately = !!data.linksPurchasedSeparately;
+    if (separately) {
+      const hint = document.createElement('p');
+      hint.textContent = 'Pick the downloads you want. Each has its own price.';
+      hint.style.cssText = 'font-size:12.5px;color:#6b7280;margin:0 0 8px;';
+      $modalFields.appendChild(hint);
+      for (const link of (data.links || [])) {
+        const wrap = document.createElement('label');
+        wrap.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;border:1px solid #e5e7eb;border-radius:4px;font-weight:400;text-transform:none;letter-spacing:0;color:#111827;font-size:14px;cursor:pointer;';
+        const left = document.createElement('span');
+        left.style.cssText = 'display:flex;align-items:center;gap:10px;';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.dataset.role = 'dl-link';
+        cb.value = String(link.id);
+        cb.addEventListener('change', refreshModalState);
+        left.appendChild(cb);
+        const title = document.createElement('span');
+        title.textContent = link.title;
+        left.appendChild(title);
+        const right = document.createElement('span');
+        right.style.cssText = 'color:#6b7280;font-variant-numeric:tabular-nums;';
+        right.textContent = money(link.priceEx);
+        wrap.appendChild(left);
+        wrap.appendChild(right);
+        $modalFields.appendChild(wrap);
       }
-      return true;
-    });
-    modalState.currentVariant = match || null;
-    if (!match) {
-      showError('That combination isn\'t available.');
-      $modalSel.hidden = true;
-      $modalQtyRow.hidden = true;
-      $modalAdd.disabled = true;
-      return;
+    } else {
+      const p = document.createElement('p');
+      p.textContent = 'All downloads are included at the product price.';
+      p.style.cssText = 'font-size:13px;color:#374151;margin:0;';
+      $modalFields.appendChild(p);
     }
+    return {
+      canAdd() {
+        if (!separately) return true;
+        return $modalFields.querySelectorAll('input[data-role="dl-link"]:checked').length > 0;
+      },
+      collect() {
+        const links = [];
+        $modalFields.querySelectorAll('input[data-role="dl-link"]:checked').forEach(cb => links.push(parseInt(cb.value, 10)));
+        const config = separately ? { links } : {};
+        // Add-price for separately purchased = sum of picked link prices; else parent price
+        let ex = data.priceEx, inc = data.priceInc;
+        if (separately) {
+          ex = 0; inc = 0;
+          for (const cb of $modalFields.querySelectorAll('input[data-role="dl-link"]:checked')) {
+            const l = (data.links || []).find(x => String(x.id) === cb.value);
+            if (l) { ex += l.priceEx; inc += l.priceInc; }
+          }
+        }
+        return [{ sku: data.sku, name: data.name, qty: readModalQty(),
+                  priceEx: ex, priceInc: inc, inStock: true, config,
+                  badge: 'download' }];
+      },
+      updateSummary() {
+        showSummary({ sku: data.sku, priceEx: data.priceEx, priceInc: data.priceInc, inStock: true });
+        $modalQtyRow.hidden = false;
+      },
+    };
+  }
+
+  function renderGrouped(data) {
+    $modalFields.innerHTML = '';
+    const p = document.createElement('p');
+    p.textContent = 'Set qty for each child product; each becomes its own line.';
+    p.style.cssText = 'font-size:12.5px;color:#6b7280;margin:0 0 8px;';
+    $modalFields.appendChild(p);
+    for (const child of (data.groupedChildren || [])) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid #e5e7eb;border-radius:4px;';
+      const left = document.createElement('div');
+      left.style.cssText = 'display:flex;flex-direction:column;gap:2px;flex:1;min-width:0;';
+      const nm = document.createElement('div');
+      nm.textContent = child.name;
+      nm.style.cssText = 'font-size:14px;color:#111827;overflow:hidden;text-overflow:ellipsis;';
+      const meta = document.createElement('div');
+      meta.style.cssText = 'font-size:12px;color:#6b7280;font-family:ui-monospace,monospace;';
+      meta.textContent = child.sku + ' · ' + money(taxMode === 1 ? child.priceInc : child.priceEx);
+      left.appendChild(nm); left.appendChild(meta);
+      const qty = document.createElement('input');
+      qty.type = 'number'; qty.min = '0'; qty.step = '1';
+      qty.value = String(child.defaultQty || 0);
+      qty.dataset.role = 'grouped-qty';
+      qty.dataset.sku = child.sku;
+      qty.dataset.name = child.name;
+      qty.dataset.priceEx = String(child.priceEx);
+      qty.dataset.priceInc = String(child.priceInc);
+      qty.dataset.inStock = child.inStock ? '1' : '0';
+      qty.style.cssText = 'width:80px;padding:6px 8px;border:1px solid #d1d5db;border-radius:4px;text-align:right;';
+      if (!child.inStock) qty.disabled = true;
+      qty.addEventListener('input', refreshModalState);
+      row.appendChild(left);
+      row.appendChild(qty);
+      $modalFields.appendChild(row);
+    }
+    return {
+      canAdd() {
+        return Array.from($modalFields.querySelectorAll('input[data-role="grouped-qty"]'))
+          .some(i => (parseInt(i.value, 10) || 0) > 0);
+      },
+      collect() {
+        const rows = [];
+        $modalFields.querySelectorAll('input[data-role="grouped-qty"]').forEach(i => {
+          const q = parseInt(i.value, 10) || 0;
+          if (q < 1) return;
+          rows.push({
+            sku: i.dataset.sku, name: i.dataset.name, qty: q,
+            priceEx: parseFloat(i.dataset.priceEx),
+            priceInc: parseFloat(i.dataset.priceInc),
+            inStock: i.dataset.inStock === '1',
+            badge: 'from group',
+          });
+        });
+        return rows;
+      },
+      updateSummary() { hideSummary(); $modalQtyRow.hidden = true; },
+    };
+  }
+
+  function renderCustomOptions(data) {
+    $modalFields.innerHTML = '';
+    const opts = data.customOptions || [];
+    for (const opt of opts) {
+      const wrap = document.createElement('div');
+      const lbl = document.createElement('label');
+      lbl.setAttribute('for', 'b2b-cop-' + opt.id);
+      lbl.textContent = opt.title + (opt.isRequire ? ' *' : '');
+      wrap.appendChild(lbl);
+      let field;
+      if (opt.type === 'drop_down' || opt.type === 'radio') {
+        field = document.createElement('select');
+        field.id = 'b2b-cop-' + opt.id;
+        field.dataset.role = 'custom-opt';
+        field.dataset.optionId = String(opt.id);
+        field.dataset.isRequire = opt.isRequire ? '1' : '0';
+        const ph = document.createElement('option'); ph.value = ''; ph.textContent = '-- ' + opt.title + ' --';
+        field.appendChild(ph);
+        for (const v of opt.values) {
+          const o = document.createElement('option');
+          o.value = String(v.id);
+          const surcharge = v.price > 0
+            ? (v.priceType === 'percent' ? ' (+' + v.price + '%)' : ' (+' + money(v.price) + ')')
+            : '';
+          o.textContent = v.title + surcharge;
+          o.dataset.priceEx = String(v.price);
+          field.appendChild(o);
+        }
+      } else if (opt.type === 'checkbox' || opt.type === 'multiple') {
+        // Render as multi-select for now (simplest)
+        field = document.createElement('select');
+        field.id = 'b2b-cop-' + opt.id;
+        field.multiple = true;
+        field.dataset.role = 'custom-opt';
+        field.dataset.optionId = String(opt.id);
+        field.dataset.multi = '1';
+        field.dataset.isRequire = opt.isRequire ? '1' : '0';
+        field.style.minHeight = '60px';
+        for (const v of opt.values) {
+          const o = document.createElement('option');
+          o.value = String(v.id);
+          const surcharge = v.price > 0
+            ? (v.priceType === 'percent' ? ' (+' + v.price + '%)' : ' (+' + money(v.price) + ')')
+            : '';
+          o.textContent = v.title + surcharge;
+          field.appendChild(o);
+        }
+      } else if (opt.type === 'field' || opt.type === 'area') {
+        field = opt.type === 'area' ? document.createElement('textarea') : document.createElement('input');
+        if (field.tagName === 'INPUT') field.type = 'text';
+        field.id = 'b2b-cop-' + opt.id;
+        field.dataset.role = 'custom-opt';
+        field.dataset.optionId = String(opt.id);
+        field.dataset.isRequire = opt.isRequire ? '1' : '0';
+        if (opt.type === 'area') field.rows = 3;
+      } else {
+        // Unsupported (file / date) - degrade to disabled text with a hint.
+        const p = document.createElement('div');
+        p.style.cssText = 'font-size:12.5px;color:#6b7280;';
+        p.textContent = 'Option type "' + opt.type + '" not supported inline. Open the product page.';
+        wrap.appendChild(p);
+        $modalFields.appendChild(wrap);
+        continue;
+      }
+      field.addEventListener('change', refreshModalState);
+      field.addEventListener('input', refreshModalState);
+      wrap.appendChild(field);
+      $modalFields.appendChild(wrap);
+    }
+    return {
+      canAdd() {
+        const required = opts.filter(o => o.isRequire);
+        for (const o of required) {
+          const el = document.getElementById('b2b-cop-' + o.id);
+          if (!el) continue;
+          if (el.multiple) {
+            if (Array.from(el.selectedOptions).length === 0) return false;
+          } else if (el.tagName === 'SELECT') {
+            if (!el.value) return false;
+          } else {
+            if (String(el.value).trim() === '') return false;
+          }
+        }
+        return true;
+      },
+      collect() {
+        const options = {};
+        let surcharge = 0;
+        $modalFields.querySelectorAll('[data-role="custom-opt"]').forEach(el => {
+          const id = el.dataset.optionId;
+          if (el.multiple) {
+            const vals = Array.from(el.selectedOptions).map(o => parseInt(o.value, 10));
+            if (vals.length) options[id] = vals;
+            vals.forEach(v => {
+              const o = Array.from(el.options).find(x => String(x.value) === String(v));
+              if (o && o.dataset.priceEx) surcharge += parseFloat(o.dataset.priceEx) || 0;
+            });
+          } else if (el.tagName === 'SELECT') {
+            if (el.value) {
+              options[id] = parseInt(el.value, 10);
+              const o = el.selectedOptions[0];
+              if (o && o.dataset.priceEx) surcharge += parseFloat(o.dataset.priceEx) || 0;
+            }
+          } else {
+            if (String(el.value).trim() !== '') {
+              options[id] = String(el.value);
+            }
+          }
+        });
+        return [{
+          sku: data.sku, name: data.name, qty: readModalQty(),
+          priceEx: data.priceEx + surcharge, priceInc: data.priceInc + surcharge,
+          inStock: true, config: { options },
+          badge: 'configured',
+        }];
+      },
+      updateSummary() {
+        showSummary({ sku: data.sku, priceEx: data.priceEx, priceInc: data.priceInc, inStock: true });
+        $modalQtyRow.hidden = false;
+      },
+    };
+  }
+
+  // ─── Modal state + generic helpers ─────────────────────────────
+  let currentRenderer = null;
+
+  function readModalQty() { return Math.max(1, parseInt($modalQty.value, 10) || 1); }
+
+  function hideSummary() {
+    $modalSel.hidden = true;
+    $modalQtyRow.hidden = true;
+  }
+  function clearError() { $modalError.hidden = true; $modalError.textContent = ''; }
+  function showSummary(v) {
     $modalError.hidden = true;
-    $modalSel.querySelector('[data-role="sku"]').textContent = match.sku;
+    $modalSel.querySelector('[data-role="sku"]').textContent = v.sku || '';
     const priceLabel = taxMode === 1 ? 'Price inc tax:' : 'Price ex tax:';
-    const unit = taxMode === 1 ? match.priceInc : match.priceEx;
+    const unit = taxMode === 1 ? v.priceInc : v.priceEx;
     $modalSel.querySelector('[data-role="tax-label"]').textContent = priceLabel;
     $modalSel.querySelector('[data-role="price"]').textContent = money(unit);
     const stockEl = $modalSel.querySelector('[data-role="stock-line"]');
-    stockEl.innerHTML = match.inStock
-      ? '<span class="in-stock">In stock</span>'
-      : '<span class="out-of-stock">Out of stock</span>';
+    stockEl.innerHTML = v.inStock ? '<span class="in-stock">In stock</span>' : '<span class="out-of-stock">Out of stock</span>';
     $modalSel.hidden = false;
-    $modalQtyRow.hidden = !match.inStock;
-    $modalAdd.disabled = !match.inStock;
+  }
+
+  function refreshModalState() {
+    if (!currentRenderer) return;
+    if (currentRenderer.updateSummary) currentRenderer.updateSummary();
+    $modalAdd.disabled = !currentRenderer.canAdd();
   }
 
   async function openForButton(btn) {
     const productId = btn.dataset.productId;
     const parentName = btn.dataset.name || btn.dataset.sku;
-    modalState = { parentSku: btn.dataset.sku, name: parentName, options: [], variants: [], selection: {}, currentVariant: null };
+    currentRenderer = null;
+    modalState = { parentSku: btn.dataset.sku, name: parentName };
     $modalName.textContent = parentName;
     $modalFields.innerHTML = '<div style="color:#6b7280;font-size:13px;padding:8px 0;">Loading options...</div>';
+    hideSummary();
+    clearError();
+    $modalAdd.disabled = true;
     openModal();
     try {
       const res = await fetch(CFG.optionsUrl + '?product_id=' + encodeURIComponent(productId), {
@@ -661,68 +964,92 @@ $catOptions = $this->getCategoryOptions();
       if (!res.ok) throw new Error('http ' + res.status);
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      modalState.options = data.options || [];
-      modalState.variants = data.variants || [];
       if (data.imageUrl) { $modalImg.src = data.imageUrl; $modalImg.hidden = false; }
       $modalName.textContent = data.name || parentName;
-      if (!modalState.options.length) {
-        $modalFields.innerHTML = '<div style="color:#6b7280;font-size:13px;">This product has no selectable options.</div>';
-        return;
+      // Dispatch on type
+      switch (data.typeId) {
+        case 'configurable': currentRenderer = renderConfigurable(data); break;
+        case 'downloadable': currentRenderer = renderDownloadable(data); break;
+        case 'grouped':      currentRenderer = renderGrouped(data); break;
+        case 'bundle':
+          $modalFields.innerHTML = '';
+          showError('Bundles have to be configured on the product page.');
+          return;
+        default:
+          if ((data.customOptions || []).length) {
+            currentRenderer = renderCustomOptions(data);
+          } else {
+            $modalFields.innerHTML = '';
+            showError('This product has no selectable options.');
+            return;
+          }
       }
-      renderFields();
+      refreshModalState();
     } catch (e) {
       $modalFields.innerHTML = '';
-      showError('Couldn\'t load options: ' + e.message);
+      showError("Couldn't load options: " + e.message);
     }
   }
 
-  function addVariantAsRow() {
-    if (!modalState || !modalState.currentVariant) return;
-    const v = modalState.currentVariant;
-    const qty = Math.max(1, parseInt($modalQty.value, 10) || 1);
+  function commitFromModal() {
+    if (!currentRenderer || !currentRenderer.canAdd()) return;
+    const rows = currentRenderer.collect();
+    if (!rows.length) return;
+    for (const row of rows) applyRowToGrid(row);
+    refreshTotals();
+    closeModal();
+  }
 
-    // If a row for that SKU already exists (buyer picked it before), just
-    // bump the qty on that row instead of adding a duplicate.
-    const existing = $body.querySelector('tr[data-sku="' + CSS.escape(v.sku) + '"]');
+  function applyRowToGrid(row) {
+    // Reuse an existing row for the same SKU (bump qty).
+    const existing = $body.querySelector('tr[data-sku="' + CSS.escape(row.sku) + '"]');
     if (existing) {
       const qtyInp = existing.querySelector('[data-role="qty"]');
-      if (qtyInp) qtyInp.value = String((parseInt(qtyInp.value, 10) || 0) + qty);
-      refreshTotals();
+      if (qtyInp) qtyInp.value = String((parseInt(qtyInp.value, 10) || 0) + row.qty);
+      // Update config blob if this row's config differs
+      if (row.config) {
+        let cfgInp = existing.querySelector('input[data-role="config"]');
+        if (!cfgInp) {
+          cfgInp = document.createElement('input');
+          cfgInp.type = 'hidden';
+          cfgInp.dataset.role = 'config';
+          cfgInp.name = 'config[' + row.sku + ']';
+          existing.appendChild(cfgInp);
+        }
+        cfgInp.value = JSON.stringify(row.config);
+      }
       existing.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      closeModal();
       return;
     }
-
-    // Otherwise: build a new row and insert it directly below the parent
-    // (which is the currently-open one - but the button doesn't know its
-    //  own row directly, so we insert at the top of the grid so the buyer
-    //  can see the variant land).
     const tr = document.createElement('tr');
-    tr.dataset.sku = v.sku;
-    tr.dataset.priceEx = String(v.priceEx);
-    tr.dataset.priceInc = String(v.priceInc);
+    tr.dataset.sku = row.sku;
+    tr.dataset.priceEx = String(row.priceEx);
+    tr.dataset.priceInc = String(row.priceInc);
     tr.dataset.type = 'simple';
     tr.dataset.addedByOptions = '1';
     tr.classList.add('has-qty');
-
-    const priceCell = money(taxMode === 1 ? v.priceInc : v.priceEx);
+    const priceCell = money(taxMode === 1 ? row.priceInc : row.priceEx);
+    const badgeHtml = row.badge ? `<span class="type-badge">${esc(row.badge)}</span>` : '';
+    const stockHtml = row.inStock === false
+      ? '<span class="stock-badge out">Out of stock</span>'
+      : '<span class="stock-badge in">In stock</span>';
+    const configInput = row.config
+      ? `<input type="hidden" data-role="config" name="config[${esc(row.sku)}]" value="${esc(JSON.stringify(row.config))}">`
+      : '';
     tr.innerHTML = `
       <td class="col-img"></td>
-      <td class="col-sku">${v.sku.replace(/[<>&]/g, '')}<span class="type-badge">variant</span></td>
-      <td class="col-name">${(v.name || modalState.name).replace(/[<>&]/g, '')}</td>
-      <td class="col-stock"><span class="stock-badge in">In stock</span></td>
+      <td class="col-sku">${esc(row.sku)}${badgeHtml}</td>
+      <td class="col-name">${esc(row.name || row.sku)}</td>
+      <td class="col-stock">${stockHtml}</td>
       <td class="col-price" data-role="unit-price">${priceCell}</td>
       <td class="col-qty">
-        <input type="number" min="0" step="1" value="${qty}" data-role="qty" name="qty[${v.sku.replace(/"/g,'&quot;')}]">
+        <input type="number" min="0" step="1" value="${row.qty}" data-role="qty" name="qty[${esc(row.sku)}]">
+        ${configInput}
       </td>
-      <td class="col-line" data-role="line-total">${money(qty * (taxMode === 1 ? v.priceInc : v.priceEx))}</td>
+      <td class="col-line" data-role="line-total">${money(row.qty * (taxMode === 1 ? row.priceInc : row.priceEx))}</td>
     `;
-
-    // Insert at the top so it's visible immediately
     $body.insertBefore(tr, $body.firstElementChild);
-    refreshTotals();
     tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    closeModal();
   }
 
   document.addEventListener('click', (ev) => {
@@ -738,7 +1065,8 @@ $catOptions = $this->getCategoryOptions();
       return;
     }
   });
-  $modalAdd.addEventListener('click', addVariantAsRow);
+  $modalAdd.addEventListener('click', commitFromModal);
+  $modalQty.addEventListener('input', refreshModalState);
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape' && !$modal.hidden) closeModal();
   });

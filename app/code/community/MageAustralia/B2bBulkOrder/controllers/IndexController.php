@@ -144,10 +144,64 @@ class MageAustralia_B2bBulkOrder_IndexController extends Mage_Core_Controller_Fr
         }
         /** @var Mage_Catalog_Model_Product $product */
         $product = Mage::getModel('catalog/product')->load($productId);
-        if (!$product->getId() || $product->getTypeId() !== Mage_Catalog_Model_Product_Type::TYPE_CONFIGURABLE) {
-            $this->_json(['error' => 'not_configurable'], 404);
+        if (!$product->getId()) {
+            $this->_json(['error' => 'not_found'], 404);
             return;
         }
+
+        $typeId = (string) $product->getTypeId();
+        $imgUrl = (string) $product->getSmallImage();
+        if ($imgUrl && $imgUrl !== 'no_selection') {
+            $imgUrl = Mage::getSingleton('catalog/product_media_config')->getMediaUrl($imgUrl);
+        } else {
+            $imgUrl = null;
+        }
+        $ex  = (float) Mage::helper('tax')->getPrice($product, (float) $product->getFinalPrice(), false);
+        $inc = (float) Mage::helper('tax')->getPrice($product, (float) $product->getFinalPrice(), true);
+
+        $out = [
+            'typeId'   => $typeId,
+            'name'     => (string) $product->getName(),
+            'sku'      => (string) $product->getSku(),
+            'imageUrl' => $imgUrl,
+            'priceEx'  => $ex,
+            'priceInc' => $inc,
+        ];
+
+        // Type-dispatched shape. Each branch fills the right subset of keys
+        // so the modal JS can render one UI per type without a big switch on
+        // the response.
+        switch ($typeId) {
+            case Mage_Catalog_Model_Product_Type::TYPE_CONFIGURABLE:
+                $out += $this->_configurableOptions($product);
+                break;
+            case Mage_Downloadable_Model_Product_Type::TYPE_DOWNLOADABLE:
+                $out += $this->_downloadableOptions($product);
+                break;
+            case Mage_Catalog_Model_Product_Type::TYPE_GROUPED:
+                $out += $this->_groupedOptions($product);
+                break;
+            case Mage_Catalog_Model_Product_Type::TYPE_BUNDLE:
+                $out += ['unsupported' => 'bundle', 'productUrl' => (string) $product->getProductUrl()];
+                break;
+            default:
+                // Simple + virtual with custom_options
+                if ($product->getHasOptions()) {
+                    $out += $this->_customOptions($product);
+                }
+                break;
+        }
+
+        $this->_json($out);
+    }
+
+    /**
+     * Configurable: attribute list + child matrix.
+     *
+     * @return array<string, mixed>
+     */
+    private function _configurableOptions(Mage_Catalog_Model_Product $product): array
+    {
         /** @var Mage_Catalog_Model_Product_Type_Configurable $typeInstance */
         $typeInstance = $product->getTypeInstance(true);
         $configAttributes = $typeInstance->getConfigurableAttributesAsArray($product);
@@ -161,16 +215,14 @@ class MageAustralia_B2bBulkOrder_IndexController extends Mage_Core_Controller_Fr
                 ];
             }
             $options[] = [
-                'code'  => (string) ($attr['attribute_code'] ?? ''),
-                'label' => (string) ($attr['label'] ?? ($attr['frontend_label'] ?? '')),
+                'code'   => (string) ($attr['attribute_code'] ?? ''),
+                'label'  => (string) ($attr['label'] ?? ($attr['frontend_label'] ?? '')),
                 'values' => $values,
             ];
         }
-
         $variants = [];
         $children = $typeInstance->getUsedProductCollection($product)
             ->addAttributeToSelect(['name', 'sku', 'price', 'small_image', 'status', 'stock_item']);
-        // Also make sure we can read the super attribute IDs
         foreach ($configAttributes as $a) {
             if (!empty($a['attribute_code'])) {
                 $children->addAttributeToSelect($a['attribute_code']);
@@ -187,29 +239,107 @@ class MageAustralia_B2bBulkOrder_IndexController extends Mage_Core_Controller_Fr
             }
             $stock = Mage::getModel('cataloginventory/stock_item')->loadByProduct($child);
             $variants[] = [
-                'sku'      => (string) $child->getSku(),
-                'name'     => (string) $child->getName(),
-                'priceEx'  => (float) Mage::helper('tax')->getPrice($child, (float) $child->getFinalPrice(), false),
-                'priceInc' => (float) Mage::helper('tax')->getPrice($child, (float) $child->getFinalPrice(), true),
-                'inStock'  => (bool) $stock->getIsInStock(),
+                'sku'        => (string) $child->getSku(),
+                'name'       => (string) $child->getName(),
+                'priceEx'    => (float) Mage::helper('tax')->getPrice($child, (float) $child->getFinalPrice(), false),
+                'priceInc'   => (float) Mage::helper('tax')->getPrice($child, (float) $child->getFinalPrice(), true),
+                'inStock'    => (bool) $stock->getIsInStock(),
                 'attributes' => $attrs,
             ];
         }
+        return ['options' => $options, 'variants' => $variants];
+    }
 
-        $imgUrl = (string) $product->getSmallImage();
-        if ($imgUrl && $imgUrl !== 'no_selection') {
-            $imgUrl = Mage::getSingleton('catalog/product_media_config')->getMediaUrl($imgUrl);
-        } else {
-            $imgUrl = null;
+    /**
+     * Downloadable: link list. If links aren't purchased separately, the
+     * links[] array is informational (the parent SKU already includes them
+     * all at the parent price).
+     *
+     * @return array<string, mixed>
+     */
+    private function _downloadableOptions(Mage_Catalog_Model_Product $product): array
+    {
+        $links = [];
+        /** @var Mage_Downloadable_Model_Product_Type $typeInstance */
+        $typeInstance = $product->getTypeInstance(true);
+        $linkCollection = $typeInstance->getLinks($product);
+        foreach ($linkCollection as $link) {
+            /** @var Mage_Downloadable_Model_Link $link */
+            $links[] = [
+                'id'    => (int) $link->getId(),
+                'title' => (string) $link->getTitle(),
+                'priceEx'  => (float) $link->getPrice(),
+                'priceInc' => (float) $link->getPrice(), // downloadable typically not taxed
+                'sampleUrl' => $link->getSampleFile() ? (string) $link->getSampleUrl() : null,
+            ];
         }
+        return [
+            'linksPurchasedSeparately' => (bool) $product->getLinksPurchasedSeparately(),
+            'links' => $links,
+        ];
+    }
 
-        $this->_json([
-            'name'     => (string) $product->getName(),
-            'sku'      => (string) $product->getSku(),
-            'imageUrl' => $imgUrl,
-            'options'  => $options,
-            'variants' => $variants,
-        ]);
+    /**
+     * Grouped: children with default qty. The modal renders one qty row per
+     * child; the addToCart submit adds each child as its own grid row (the
+     * grouped parent SKU itself is never carted).
+     *
+     * @return array<string, mixed>
+     */
+    private function _groupedOptions(Mage_Catalog_Model_Product $product): array
+    {
+        $children = [];
+        /** @var Mage_Catalog_Model_Product_Type_Grouped $typeInstance */
+        $typeInstance = $product->getTypeInstance(true);
+        $collection = $typeInstance->getAssociatedProducts($product);
+        foreach ($collection as $child) {
+            /** @var Mage_Catalog_Model_Product $child */
+            $stock = Mage::getModel('cataloginventory/stock_item')->loadByProduct($child);
+            $children[] = [
+                'id'        => (int) $child->getId(),
+                'sku'       => (string) $child->getSku(),
+                'name'      => (string) $child->getName(),
+                'priceEx'   => (float) Mage::helper('tax')->getPrice($child, (float) $child->getFinalPrice(), false),
+                'priceInc'  => (float) Mage::helper('tax')->getPrice($child, (float) $child->getFinalPrice(), true),
+                'inStock'   => (bool) $stock->getIsInStock(),
+                'defaultQty' => (float) ($child->getQty() ?: 0),
+            ];
+        }
+        return ['groupedChildren' => $children];
+    }
+
+    /**
+     * Simple / virtual product with custom options.
+     *
+     * @return array<string, mixed>
+     */
+    private function _customOptions(Mage_Catalog_Model_Product $product): array
+    {
+        $out = [];
+        foreach ($product->getOptions() as $option) {
+            /** @var Mage_Catalog_Model_Product_Option $option */
+            $type = (string) $option->getType();
+            $values = [];
+            foreach ($option->getValues() ?: [] as $v) {
+                /** @var Mage_Catalog_Model_Product_Option_Value $v */
+                $values[] = [
+                    'id'        => (int) $v->getId(),
+                    'title'     => (string) $v->getTitle(),
+                    'priceType' => (string) $v->getPriceType(),
+                    'price'     => (float) $v->getPrice(),
+                ];
+            }
+            $out[] = [
+                'id'        => (int) $option->getId(),
+                'title'     => (string) $option->getTitle(),
+                'type'      => $type,
+                'isRequire' => (bool) $option->getIsRequire(),
+                'priceType' => (string) $option->getPriceType(),
+                'price'     => (float) $option->getPrice(),
+                'values'    => $values,
+            ];
+        }
+        return ['customOptions' => $out];
     }
 
     /**
@@ -252,6 +382,22 @@ class MageAustralia_B2bBulkOrder_IndexController extends Mage_Core_Controller_Fr
             return;
         }
 
+        // Per-SKU option config blobs from the modal - see the config[SKU]
+        // hidden input the JS injects. Each blob is JSON. Merged into the
+        // addProduct params so downloadable links[], custom options[], and
+        // (future) bundle_option[] all flow through the same code path.
+        $rawConfigs = (array) $this->getRequest()->getPost('config', []);
+        $configs = [];
+        foreach ($rawConfigs as $sku => $json) {
+            $decoded = null;
+            if (is_string($json) && $json !== '') {
+                $decoded = json_decode($json, true);
+            }
+            if (is_array($decoded)) {
+                $configs[(string) $sku] = $decoded;
+            }
+        }
+
         $cart = Mage::getSingleton('checkout/cart');
         $addedCount = 0;
         foreach ($items as $sku => $qty) {
@@ -259,8 +405,9 @@ class MageAustralia_B2bBulkOrder_IndexController extends Mage_Core_Controller_Fr
             if (!$product || !$product->getId()) {
                 continue;
             }
+            $params = ['qty' => (float) $qty] + (array) ($configs[$sku] ?? []);
             try {
-                $cart->addProduct($product, ['qty' => (float) $qty]);
+                $cart->addProduct($product, $params);
                 $addedCount++;
             } catch (Mage_Core_Exception $e) {
                 Mage::getSingleton('checkout/session')->addError(

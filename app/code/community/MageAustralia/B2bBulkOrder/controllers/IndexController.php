@@ -400,7 +400,11 @@ class MageAustralia_B2bBulkOrder_IndexController extends Mage_Core_Controller_Fr
         foreach ($rawConfigs as $sku => $json) {
             $decoded = null;
             if (is_string($json) && $json !== '') {
-                $decoded = json_decode($json, true);
+                try {
+                    $decoded = Mage::helper('core')->jsonDecode($json);
+                } catch (\JsonException | Mage_Core_Exception) {
+                    // malformed user-supplied blob - skip, never 500
+                }
             }
             if (is_array($decoded)) {
                 $configs[(string) $sku] = $decoded;

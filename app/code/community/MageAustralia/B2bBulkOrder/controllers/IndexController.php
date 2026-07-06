@@ -10,6 +10,8 @@
 
 declare(strict_types=1);
 
+use Maho\Config\Route;
+
 
 /**
  * The customer-facing bulk-order controller.
@@ -59,12 +61,15 @@ class MageAustralia_B2bBulkOrder_IndexController extends Mage_Core_Controller_Fr
         $this->setFlag('', self::FLAG_NO_DISPATCH, true);
     }
 
+    #[Route('/bulk-order', methods: ['GET'])]
+    #[Route('/bulk-order/index/index', methods: ['GET'])]
     public function indexAction(): void
     {
         $this->loadLayout();
         $this->renderLayout();
     }
 
+    #[Route('/bulk-order/index/parse', methods: ['POST'])]
     public function parseAction(): void
     {
         $this->_validateFormKey();
@@ -76,6 +81,7 @@ class MageAustralia_B2bBulkOrder_IndexController extends Mage_Core_Controller_Fr
         $this->_respondWithMatchResult($helper, $requested);
     }
 
+    #[Route('/bulk-order/index/upload', methods: ['POST'])]
     public function uploadAction(): void
     {
         $this->_validateFormKey();
@@ -135,6 +141,7 @@ class MageAustralia_B2bBulkOrder_IndexController extends Mage_Core_Controller_Fr
      *     ]
      *   }
      */
+    #[Route('/bulk-order/index/options', methods: ['GET'])]
     public function optionsAction(): void
     {
         $productId = (int) $this->getRequest()->getParam('product_id');
@@ -354,6 +361,7 @@ class MageAustralia_B2bBulkOrder_IndexController extends Mage_Core_Controller_Fr
             ->setBody(Mage::helper('core')->jsonEncode($data));
     }
 
+    #[Route('/bulk-order/index/template', methods: ['GET'])]
     public function templateAction(): void
     {
         $body = "SKU,Quantity\r\n"
@@ -367,6 +375,7 @@ class MageAustralia_B2bBulkOrder_IndexController extends Mage_Core_Controller_Fr
             ->setBody($body);
     }
 
+    #[Route('/bulk-order/index/addToCart', methods: ['POST'])]
     public function addToCartAction(): void
     {
         $this->_validateFormKey();
@@ -426,6 +435,7 @@ class MageAustralia_B2bBulkOrder_IndexController extends Mage_Core_Controller_Fr
         $this->_redirect('*/*/');
     }
 
+    #[Route('/bulk-order/index/setTaxDisplay', methods: ['POST'])]
     public function setTaxDisplayAction(): void
     {
         $this->_validateFormKey();

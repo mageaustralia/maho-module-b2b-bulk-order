@@ -6,7 +6,7 @@
     "keywords": ["maho", "b2b", "bulk-order", "quick-order", "wholesale"],
     "require": {
         "php": ">=8.3",
-        "mahocommerce/maho": "^26.5"
+        "mahocommerce/maho": ">=26.5 <26.9"
     },
     "authors": [
         {"name": "Mage Australia", "homepage": "https://mageaustralia.com.au"}
